@@ -1,0 +1,2598 @@
+import os
+import sys
+import pandas as pd
+import warnings
+
+# Filtrer bort openpyxl warnings om default style
+warnings.filterwarnings('ignore', category=UserWarning, module='openpyxl')
+
+# === KONFIGURASJON FOR Å STØTTE NORSKE TEGN (Æ, Ø, Å) ===
+# Sett encoding til UTF-8 for print-output
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except AttributeError:
+        pass  # Ikke en ekte terminal (f.eks. GUI) — encoding-omstilling ikke nødvendig
+
+# === SØKEORD FOR FILTRERING I NAVN (PROSESSKODE) ===
+sok_betong = "BETONG"
+sok_armering = "Armering"
+
+# Definer filstier (kan overstyres av GUI eller config)
+# Hvis filene er allerede definert (fra GUI), bruk dem
+# Ellers bruk defaults
+if 'excel_file_armering' not in globals():
+    excel_file_armering = r"C:\Users\ifi\OneDrive - Scan Survey\Armering_Total_VEK_2402.xlsx"
+if 'excel_file_RIB' not in globals():
+    excel_file_RIB = r"C:\Users\ifi\OneDrive - Scan Survey\RIB_Total_VEK_2402.xlsx"
+if 'excel_file_OMEGA' not in globals():
+    excel_file_OMEGA = r"C:\Users\ifi\OneDrive - Scan Survey\Omega_total_K7_2302.xlsx"
+
+# Les OMEGA-filen (hopp over de to første radene)
+df_omega = pd.read_excel(excel_file_OMEGA, sheet_name="BOQNT", engine="openpyxl", skiprows=2)
+
+# Normaliser kolonnenavn: støtt både Mars-format og April-format
+_omega_kol_rename = {}
+if "Kontraktsmengde" not in df_omega.columns and "Opprinnelig" in df_omega.columns:
+    _omega_kol_rename["Opprinnelig"] = "Kontraktsmengde"
+if "Rapportert mengde (Kumulativ)" not in df_omega.columns and "Rapportert" in df_omega.columns:
+    _omega_kol_rename["Rapportert"] = "Rapportert mengde (Kumulativ)"
+if _omega_kol_rename:
+    df_omega = df_omega.rename(columns=_omega_kol_rename)
+    print(f"[INFO] Omega: kolonner normalisert (April-format): {_omega_kol_rename}")
+
+# Les filer
+df_armering = pd.read_excel(excel_file_armering, sheet_name="Armering", engine="openpyxl")
+df_RIB = pd.read_excel(excel_file_RIB, sheet_name="RIB", engine="openpyxl")
+
+# === VALIDERING: RÅ ARMERINGSMODELL ===
+# Tell hvor mye armering som finnes totalt i modellen (før filtrering)
+weight_col = "PGF_RIB_Info.Vekt"
+mengle = "FOB_Info.FOB_Mengdelistepost"
+
+print("\n" + "="*70)
+print("VALIDERING: RÅ ARMERINGSMODELL")
+print("="*70)
+
+# Totalt antall jern
+total_antall_jern = len(df_armering)
+print(f"\nTotalt antall armeringsjern i modellen: {total_antall_jern}")
+
+# Total vekt
+if weight_col in df_armering.columns:
+    total_vekt_raw = df_armering[weight_col].fillna(0).astype(float).sum()
+    print(f"Total vekt i modellen: {total_vekt_raw:.2f} kg")
+else:
+    total_vekt_raw = 0
+    print(f"[WARNING] Kolonnen '{weight_col}' finnes ikke - kan ikke beregne total vekt")
+
+# Sjekk hvor mange jern som har mengdelistepost
+if mengle in df_armering.columns:
+    jern_med_mengde = df_armering[mengle].notna().sum()
+    jern_uten_mengde = total_antall_jern - jern_med_mengde
+    
+    print(f"\nJern med mengdelistepost: {jern_med_mengde} ({jern_med_mengde/total_antall_jern*100:.1f}%)")
+    print(f"Jern UTEN mengdelistepost: {jern_uten_mengde} ({jern_uten_mengde/total_antall_jern*100:.1f}%)")
+    
+    # Vekt for jern uten mengdelistepost
+    if weight_col in df_armering.columns:
+        vekt_uten_mengde = df_armering[df_armering[mengle].isna()][weight_col].fillna(0).astype(float).sum()
+        print(f"\nVekt av jern UTEN mengdelistepost: {vekt_uten_mengde:.2f} kg ({vekt_uten_mengde/total_vekt_raw*100:.1f}%)")
+        print(f"Vekt av jern MED mengdelistepost: {total_vekt_raw - vekt_uten_mengde:.2f} kg ({(total_vekt_raw - vekt_uten_mengde)/total_vekt_raw*100:.1f}%)")
+        
+        # Finn produksjonsenheter for jern uten mengdelistepost
+        pe_col = "FOB_Info.FOB_Produksjonsenhet"
+        if pe_col in df_armering.columns:
+            jern_uten_mengde_df = df_armering[df_armering[mengle].isna()].copy()
+            
+            # Aggreger per produksjonsenhet
+            pe_uten_mengde_agg = jern_uten_mengde_df.groupby(pe_col).agg({
+                weight_col: 'sum'
+            }).reset_index()
+            pe_uten_mengde_agg.columns = ['Produksjonsenhet', 'Vekt_kg']
+            pe_uten_mengde_agg = pe_uten_mengde_agg.sort_values('Vekt_kg', ascending=False)
+            
+            print(f"\nProduksjonsenheter med armering UTEN mengdelistepost (topp 10):")
+            for idx, row in pe_uten_mengde_agg.head(10).iterrows():
+                print(f"  {row['Produksjonsenhet']}: {row['Vekt_kg']:.2f} kg")
+            
+            if len(pe_uten_mengde_agg) > 10:
+                print(f"  ... og {len(pe_uten_mengde_agg) - 10} til")
+            
+            # Lagre for senere bruk i dokumentasjon
+            pe_uten_mengde_rapport = pe_uten_mengde_agg
+        else:
+            pe_uten_mengde_rapport = pd.DataFrame()
+    else:
+        pe_uten_mengde_rapport = pd.DataFrame()
+else:
+    print(f"\n[WARNING] Kolonnen '{mengle}' finnes ikke - kan ikke sjekke mengdelistepost-fordeling")
+    jern_uten_mengde = 0
+    vekt_uten_mengde = 0
+    pe_uten_mengde_rapport = pd.DataFrame()
+
+print("="*70 + "\n")
+
+# === DETEKTER DEKKER TYKKERE ENN 250mm FRA RIB-MODELLEN ===
+# Maal: finn PE-er som er dekker (flat slab) med tykkelse > 250mm
+# Disse skal bruke B35 "Overkant dekker T>250mm"-regelen for omfarlengde
+pe_dekker_tykk = set()  # PE-navn med dekker T>250mm
+
+_type_col_rib = "Type" if "Type" in df_RIB.columns else None
+_pe_col_rib = "FOB_Info.FOB_Produksjonsenhet"
+
+if _type_col_rib and _pe_col_rib in df_RIB.columns:
+    import re as _re
+
+    def _er_tykk_dekke(type_str):
+        """Returner True hvis type_str er dekke/slab med tykkelse > 250mm.
+        Tykkelsen leses ut fra Type-strengen, f.eks. 'Floor:Dekke 300 B35' -> 300mm."""
+        s = str(type_str)
+        if not _re.search(r"dekke|slab", s, _re.IGNORECASE):
+            return False
+        m = _re.search(r"\b(\d{3,4})\b", s)
+        if m:
+            try:
+                return int(m.group(1)) > 250
+            except ValueError:
+                pass
+        return False
+
+    _tykk_mask = df_RIB[_type_col_rib].apply(_er_tykk_dekke)
+
+    for _pe_raw in df_RIB.loc[_tykk_mask, _pe_col_rib].dropna():
+        for _pe_part in str(_pe_raw).split(","):
+            pe_dekker_tykk.add(_pe_part.strip())
+
+    print(f"\n[INFO] Dekker-analyse (RIB): tykkelse utledet fra Type-kolonne")
+    print(f"[INFO] PE-er med dekker T>250mm: {len(pe_dekker_tykk)}")
+    if pe_dekker_tykk:
+        _vis = sorted(pe_dekker_tykk)[:10]
+        for _p in _vis:
+            print(f"  - {_p}")
+        if len(pe_dekker_tykk) > 10:
+            print(f"  ... og {len(pe_dekker_tykk) - 10} til")
+else:
+    print(f"\n[INFO] Dekker-analyse: mangler Type- eller PE-kolonne i RIB")
+
+# Sjekk og filtrer bort rader som inneholder "Fuge" i TYPE-kolonnen
+
+type_col = "Type"
+if type_col in df_RIB.columns:
+    initial_rows = len(df_RIB)
+    df_RIB = df_RIB[~df_RIB[type_col].astype(str).str.contains("fuge", case=False, na=False, regex=False)].copy()
+    filtered_rows = initial_rows - len(df_RIB)
+    # Filtered out rows with 'Fuge'
+else:
+    pass  # Type column not found
+
+# Sjekk at PGF_Info.PGF_Fagkapittel kun inneholder ønskede fagkapitler
+chap_col = "PGF_Info.PGF_Fagkapittel"
+allowed = {"05 Betongarbeider", "06 Betongkonstruksjoner, prefab"}
+
+if chap_col not in df_RIB.columns:
+    raise KeyError(f"{chap_col} finnes ikke i df_RIB")
+
+found = df_RIB[chap_col].dropna().unique()
+others = [v for v in found if v not in allowed]
+
+if others:
+    # Filter out invalid fagkapitler
+    df_RIB = df_RIB[df_RIB[chap_col].isin(allowed)].copy()
+else:
+    pass  # All valid
+
+# Kolonnenavn (definer tidlig)
+key = "FOB_Info.FOB_Produksjonsenhet"
+
+# Volum: Bruk PGF_Kalkyle.PGF_Volum som betongmengde
+vol_col = "PGF_Kalkyle.PGF_Volum"
+print(f"[INFO] Bruker 'PGF_Kalkyle.PGF_Volum' for betongmengde")
+
+# Enkelte datasett (t.d. K10 Skøyen) manglar PGF_Kalkyle.PGF_Volum heilt.
+# Då skal volum hentast frå FOB_Mengde ("Bruk FOB_Mengde for RIB-volum").
+# Sikre at kolonna finst uansett, slik at kolonneutvalet under ikkje feilar
+# med KeyError når kjelda manglar han og ingen rad fekk volum sett.
+if vol_col not in df_RIB.columns:
+    print(f"[WARNING] '{vol_col}' finst ikkje i RIB-data — opprettar tom kolonne. "
+          f"Hugs å hake av 'Bruk FOB_Mengde for RIB-volum' for å få volum frå FOB_Mengde.")
+    df_RIB[vol_col] = pd.NA
+
+weight_col = "PGF_RIB_Info.Vekt"
+diam_col = "PGF_RIB_Info.Stangdiameter"
+length_col = "PGF_RIB_Info.Lengde"
+mengle = "FOB_Info.FOB_Mengdelistepost"
+# Merk: material-konsistenskontroll (dominerande material per mengdelistepost)
+# vert gjort sentralt i csv_til_armrib.les_csv slik at den dekkjer ALLE fag
+# (betong, armering, stål, MEK …), ikkje berre 05/06 i dette skriptet.
+
+# === RAPPORT: Sjekk om alle Mengdelistepost fra RIB finnes i OMEGA ===
+mengle_rib = mengle
+omega_codes = set(df_omega["Navn (Prosesskode)"].astype(str).str.strip().unique())
+
+# Initialize report lines list to collect all output
+report_lines = []
+
+# Pre-compute: Konverter til set for rask lookup (brukes i post_exists_in_omega)
+all_omega_codes_set = set(omega_codes)
+
+# Pre-compute: Bygg dict som mapper prefix til koder (for underpost-søk)
+omega_codes_with_prefix = set()
+for code in omega_codes:
+    parts = code.split(".")
+    for i in range(1, len(parts)):
+        prefix = ".".join(parts[:i]) + "."
+        omega_codes_with_prefix.add(prefix)
+
+report_lines.append("\n" + "="*70)
+report_lines.append("MENGDELISTEPOSTER SOM IKKE FINNES I OMEGA")
+report_lines.append("="*70)
+
+# Få alle unike posts fra RIB
+rib_posts = set()
+for val in df_RIB[mengle_rib].dropna():
+    for item in str(val).split(";"):
+        item = item.strip()
+        if item:
+            rib_posts.add(item)
+
+# Funksjon for å sjekke hierarkisk matching
+def post_exists_in_omega(post, omega_codes_set, omega_codes_with_prefix):
+    """
+    Sjekk om post finnes i OMEGA.
+    Hvis ikke - sjekk om det finnes en underpost (hierarkisk matching med punkter)
+    """
+    # Eksakt match (O(1) set lookup)
+    if post in omega_codes_set:
+        return True, "eksakt"
+    
+    # Sjekk om det finnes underposter (bruk pre-computed prefix dict)
+    prefix_key = post + "."
+    if prefix_key in omega_codes_with_prefix:
+        return True, "underpost"
+    
+    return False, None
+
+# Finn posts som mangler i OMEGA (uten hierarkisk fallback)
+missing_posts = set()
+for post in rib_posts:
+    exists, match_type = post_exists_in_omega(post, all_omega_codes_set, omega_codes_with_prefix)
+    if not exists:
+        missing_posts.add(post)
+
+if missing_posts:
+    report_lines.append(f"\nFunnet {len(missing_posts)} mengdelisteposter som IKKE finnes i OMEGA.")
+    report_lines.append("Disse vises i rapporten uten OMEGA-mengder (kontraktsmengde/rapportert mengde).")
+    
+    # Samle summarisk info
+    total_vekt_missing = 0
+    unique_pe_missing = set()
+    
+    for post in sorted(missing_posts):
+        mask = df_RIB[mengle_rib].astype(str).str.contains(post, na=False)
+        rows_with_post = df_RIB[mask]
+        
+        if not rows_with_post.empty:
+            for idx, rib_row in rows_with_post.iterrows():
+                prod = rib_row[key]
+                unique_pe_missing.add(prod)
+                
+                arm_rows = df_armering[df_armering[key] == prod]
+                if not arm_rows.empty and weight_col in df_armering.columns:
+                    total_vekt_missing += arm_rows[weight_col].sum()
+    
+    report_lines.append(f"\nSammendrag:")
+    report_lines.append(f"  Totalt {len(missing_posts)} mengdelisteposter mangler i OMEGA")
+    report_lines.append(f"  Berører {len(unique_pe_missing)} unike produksjonsenheter")
+    report_lines.append(f"  Total armeringsvekt: {total_vekt_missing:.0f} kg")
+    report_lines.append(f"\nDisse postene vises i rapporten med data fra modellen.")
+else:
+    report_lines.append("\nAlle mengdelisteposter fra RIB finnes i OMEGA.")
+
+import re
+
+# --- Eksplodér og normaliser df_RIB (behold original df_RIB uendret) ---
+# VIKTIG: Behold én rad per RIB-rad (ikke aggreger per PE) for å beholde volum per mengdelistepost
+df_rib_long = df_RIB.reset_index().rename(columns={"index": "_rib_row"}).copy()
+df_rib_long[key] = df_rib_long[key].astype(str).fillna("").str.split(",")
+df_rib_long = df_rib_long.explode(key)
+df_rib_long[key] = df_rib_long[key].str.strip()
+df_rib_long = df_rib_long[df_rib_long[key] != ""]
+df_rib_long["_match"] = df_rib_long[key].str.lower()
+
+# NYTT: Behold volum PER RIB-RAD (ikke per PE) - dette sikrer at volum følger mengdelistepost
+# Lag en unik nøkkel per RIB-rad: _match + _rib_row
+df_rib_long["_rib_key"] = df_rib_long["_match"] + "_" + df_rib_long["_rib_row"].astype(str)
+
+# Lag representativ original tekst for produksjonsenheten (fra RIB først, ellers fra Armering)
+orig_from_rib = df_rib_long.groupby("_match")[key].first().to_dict()
+
+# --- Eksplodér og normaliser df_armering ---
+df_arm_long = df_armering.copy()
+
+# BEREGN VEKT PER ARMERINGSJERN FØR EKSPLODERING/AGGREGERING
+# Sørg for at diameter- og vekt-kolonner finnes
+if diam_col not in df_arm_long.columns or weight_col not in df_arm_long.columns:
+    raise KeyError(f"{diam_col} eller {weight_col} mangler i `df_armering`")
+
+import numpy as np
+
+if length_col in df_arm_long.columns and diam_col in df_arm_long.columns:
+    # Forenklet formel: dia_mm² × 0.006165 × lengde_m = vekt_kg
+    # 0.006165 = (π × 7850 kg/m³) / (4 × 1000000)
+    # Diameter er i meter, så konverter til mm først
+    
+    # Legg til debug-kolonner
+    # Smart enhetsdeteksjon: <1 → meter → ×1000, ellers allerede i mm
+    def _conv_mm_diam_arm(v):
+        if pd.isna(v):
+            return float("nan")
+        v = float(v)
+        return v * 1000 if v < 1.0 else v
+    df_arm_long["Diameter_mm"] = df_arm_long[diam_col].apply(_conv_mm_diam_arm)
+    df_arm_long["Lengde_original"] = df_arm_long[length_col].astype(float)
+    
+    # SMART ENHETSDETEKSJON PER RAD
+    # Hvis lengdeverdi > 100, anta millimeter og konverter til meter
+    # Ellers, anta at den allerede er i meter
+    def convert_lengde_to_meter(lengde_val):
+        if pd.isna(lengde_val):
+            return 0.0
+        if lengde_val > 100:
+            # Sannsynligvis millimeter - konverter til meter
+            return lengde_val / 1000
+        else:
+            # Allerede i meter
+            return lengde_val
+    
+    df_arm_long["Lengde_m"] = df_arm_long["Lengde_original"].apply(convert_lengde_to_meter)
+    
+    # Tell hvor mange som ble konvertert
+    antall_konvertert = (df_arm_long["Lengde_original"] > 100).sum()
+    antall_totalt = len(df_arm_long)
+    
+    print(f"\n" + "="*60)
+    print(f"SMART ENHETSDETEKSJON")
+    print(f"="*60)
+    print(f"Totalt antall armeringsjern: {antall_totalt}")
+    print(f"Antall med lengde > 100 (konvertert fra mm til m): {antall_konvertert}")
+    print(f"Antall med lengde <= 100 (allerede i m): {antall_totalt - antall_konvertert}")
+    print(f"="*60 + "\n")
+    
+    # Beregn vekt per jern (FØR aggregering)
+    df_arm_long["Vekt_Utregnet_Per_Jern"] = (
+        df_arm_long["Diameter_mm"] ** 2 * 0.006165 * df_arm_long["Lengde_m"]
+    ).fillna(0)
+else:
+    df_arm_long["Vekt_Utregnet_Per_Jern"] = 0
+
+# Nå eksploder vi produksjonsenhet-kolonnen
+df_arm_long[key] = df_arm_long[key].astype(str).fillna("").str.split(",")
+df_arm_long = df_arm_long.explode(key)
+df_arm_long[key] = df_arm_long[key].str.strip()
+df_arm_long = df_arm_long[df_arm_long[key] != ""]
+df_arm_long["_match"] = df_arm_long[key].str.lower()
+
+# === DETEKTER LM (LØSE MASSER) ===
+formkode_col = "PGF_RIB_Info.Formkode"
+if formkode_col in df_arm_long.columns:
+    df_arm_long["Er_LM"] = df_arm_long[formkode_col].astype(str).str.contains("LM", case=False, na=False)
+    df_arm_long["Vekt_LM"] = df_arm_long["Er_LM"] * df_arm_long[weight_col].fillna(0).astype(float)
+    print(f"\n[INFO] LM-deteksjon aktivert")
+    print(f"  Totalt antall jern med LM: {df_arm_long['Er_LM'].sum()}")
+    print(f"  Total LM-vekt: {df_arm_long['Vekt_LM'].sum():.2f} kg\n")
+else:
+    df_arm_long["Er_LM"] = False
+    df_arm_long["Vekt_LM"] = 0.0
+    print(f"\n[WARNING] Kolonnen '{formkode_col}' finnes ikke - LM kan ikke detekteres\n")
+
+# Pivot: sum vekter per diameter per produksjonsenhet
+
+# Aggreger vekt (sum) per match+diameter
+w = (
+    df_arm_long.groupby(["_match", diam_col])[weight_col]
+    .agg(lambda s: s.dropna().astype(float).sum() if len(s.dropna())>0 else 0)
+    .unstack(fill_value=0)
+)
+
+# Aggreger Vekt_Utregnet_Per_Jern per match
+vekt_utregnet_agg = (
+    df_arm_long.groupby("_match")["Vekt_Utregnet_Per_Jern"]
+    .sum()
+    .reset_index()
+    .rename(columns={"Vekt_Utregnet_Per_Jern": "Total_Vekt_Utregnet"})
+)
+
+# Aggreger LM-vekt per match
+lm_agg = (
+    df_arm_long.groupby("_match")
+    .agg({
+        "Vekt_LM": "sum",
+        "Er_LM": "any"  # True hvis minst ett jern har LM
+    })
+    .reset_index()
+    .rename(columns={"Vekt_LM": "Total_LM_Vekt", "Er_LM": "Har_LM"})
+)
+
+# Sanitize diameter-verdier til kolonnenavn: fjern mellomrom/symboler
+def _sanitize(s):
+    s = str(s)
+    s = s.strip()
+    s = re.sub(r"[^\w\d]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s or "unknown"
+
+w.columns = [f"Vekt_{_sanitize(c)}" for c in w.columns]
+
+weights_pivot = w.reset_index()
+
+# Representativ original produksjonsenhet fra armering hvis ikke i RIB
+orig_from_arm = df_arm_long.groupby("_match")[key].first().to_dict()
+
+# NYTT: Behold RIB-rader separat (én rad per RIB-rad, ikke per PE)
+# Hver RIB-rad har sitt eget volum og mengdelistepost
+# VIKTIG: Behold også fagkapittel for å filtrere på betong
+fagkapittel_col = "PGF_Info.PGF_Fagkapittel"
+
+_rib_base_cols = ["_match", "_rib_row", "_rib_key", vol_col, mengle, key, fagkapittel_col]
+_FOB_STAAL_COL = "_FOB_Staal_Mengde"
+if _FOB_STAAL_COL in df_rib_long.columns:
+    _rib_base_cols.append(_FOB_STAAL_COL)
+rib_rows_for_final = df_rib_long[_rib_base_cols].copy()
+rib_rows_for_final = rib_rows_for_final.rename(columns={key: "FOB_Produksjonsenhet_rep"})
+
+# FILTER: Fjern rader hvor volum er NaN eller 0
+# Hvis det ikke er volum i RIB, skal raden ikke være med
+rib_rows_for_final = rib_rows_for_final[
+    rib_rows_for_final[vol_col].notna() & (rib_rows_for_final[vol_col] > 0)
+]
+
+# Merge armering-vekt og vekt_utregnet inn i RIB-rader
+final = rib_rows_for_final.merge(weights_pivot, on="_match", how="outer")
+final = final.merge(vekt_utregnet_agg, on="_match", how="left")
+final = final.merge(lm_agg, on="_match", how="left")
+
+# Fyll NaN-verdier for LM
+final["Total_LM_Vekt"] = final["Total_LM_Vekt"].fillna(0.0)
+final["Har_LM"] = final["Har_LM"].fillna(False)
+
+# For rader som kun finnes i armering (ikke i RIB), sett PE-navn fra armering
+mask_no_pe = final["FOB_Produksjonsenhet_rep"].isna()
+for idx in final[mask_no_pe].index:
+    match_val = final.loc[idx, "_match"]
+    if match_val in orig_from_arm:
+        final.at[idx, "FOB_Produksjonsenhet_rep"] = orig_from_arm[match_val]
+
+# Valgfri: flytt kolonnen nær starten
+cols = final.columns.tolist()
+if mengle in cols:
+    cols = ["_match", "FOB_Produksjonsenhet_rep", mengle] + [c for c in cols if c not in ("_match", "FOB_Produksjonsenhet_rep", mengle)]
+# Valgfritt: fjern hjelp-kolonne _match eller flytt til starten
+cols = final.columns.tolist()
+# flytt _match og representativ tekst først
+cols = ["_match", "FOB_Produksjonsenhet_rep"] + [c for c in cols if c not in ("_match", "FOB_Produksjonsenhet_rep")]
+final = final[cols]
+
+# --- Eksplodér Mengdelistepost over flere kolonner ---
+if mengle in final.columns:
+    # Split på semikolon; expand=True gir separate kolonner direkte
+    meng_split = final[mengle].str.split(";", expand=True)
+    
+    # Omdøp kolonnene til Mengdelistepost_1, Mengdelistepost_2, osv.
+    meng_split.columns = [f"Mengdelistepost_{i+1}" for i in range(meng_split.shape[1])]
+    
+    # Fjern gamle mengle-kolonne og slå inn de nye
+    final = final.drop(columns=[mengle])
+    final = pd.concat([final, meng_split], axis=1)
+
+# --- Legg til Total_Armering_Vekt som summerer alle Vekt_*-kolonner ---
+vekt_cols_in_final = [c for c in final.columns if c.startswith("Vekt_")]
+if vekt_cols_in_final:
+    final["Total_Armering_Vekt"] = final[vekt_cols_in_final].sum(axis=1)
+    
+    # Reorganiser kolonner: flytt Total_Armering_Vekt før første Vekt_*-kolonne
+    cols = final.columns.tolist()
+    cols.remove("Total_Armering_Vekt")
+    
+    # Finn indeksen til første Vekt_*-kolonne
+    first_vekt_idx = cols.index(vekt_cols_in_final[0])
+    
+    # Sett inn Total_Armering_Vekt før første Vekt_*
+    cols.insert(first_vekt_idx, "Total_Armering_Vekt")
+    
+    final = final[cols]
+
+# CSV-eksport fjernet for hastighet
+
+# --- Lag sammenfattet DF gruppert på Mengdelistepostene ---
+# Finn alle Mengdelistepost-kolonner
+meng_cols = [c for c in final.columns if c.startswith("Mengdelistepost_")]
+
+# Finn alle Vekt_*-kolonner
+vekt_cols = [c for c in final.columns if c.startswith("Vekt_")]
+
+# Gruppér på alle Mengdelistepost-kolonner
+if meng_cols:
+    # Aggreger: summer alle vekt-kolonner, summer volum
+    agg_dict = {col: "sum" for col in vekt_cols}
+    agg_dict[vol_col] = "sum"
+    
+    grouped = final.groupby(meng_cols, dropna=False).agg(agg_dict).reset_index()
+    
+    # Slå sammen alle Vekt_*-kolonner til én Total_Vekt
+    grouped["Total_Vekt"] = grouped[vekt_cols].sum(axis=1)
+    
+    # Omdøp volum-kolonne til Total_Volum for klarhet
+    grouped = grouped.rename(columns={vol_col: "Total_Volum"})
+    
+    # Dropp de enkelte vekt-kolonnene (behold kun Total_Vekt)
+    grouped = grouped.drop(columns=vekt_cols)
+    
+    # --- Sorter Mengdelistepost-kolonner etter antall punktum ---
+    # For hver rad, sorter mengdelistepostene etter antall punktum (færreste først)
+    def sort_by_dots(row):
+        # Hent verdiene fra mengdelistepost-kolonnene
+        posts = [row[col] for col in meng_cols if pd.notna(row[col])]
+        
+        # Sorter etter antall punktum (færreste først)
+        posts_sorted = sorted(posts, key=lambda x: str(x).count("."))
+        
+        # Fyll resten med NaN
+        posts_sorted.extend([None] * (len(meng_cols) - len(posts_sorted)))
+        
+        return posts_sorted
+    
+    # Appliser sorteringen på hver rad
+    sorted_posts = grouped[meng_cols].apply(sort_by_dots, axis=1, result_type="expand")
+    sorted_posts.columns = meng_cols
+    
+    # Erstatt de gamle mengdelistepost-kolonnene
+    grouped = grouped.drop(columns=meng_cols)
+    grouped = pd.concat([grouped, sorted_posts], axis=1)
+    
+    # Reorganiser kolonner: Total_Vekt og Total_Volum først, så Mengdelistepostene
+    cols_order = ["Total_Vekt", "Total_Volum"] + meng_cols
+    grouped = grouped[[c for c in cols_order if c in grouped.columns]]
+    
+    # CSV-eksport og print fjernet for hastighet
+    pass
+else:
+    # No mengdelistepost columns found
+    sys.exit()
+
+# --- Opprett tredje dokument: Total_Vekt, Total_Volum, + 3 Mengdelistepost med OMEGA-kobling + aggregering PER HOVEDKODE ---
+# Starting third document creation
+
+# Filtrer OMEGA for rader som inneholder betong eller armering i Tittel
+# For Betong: må inneholde "Betong" i Tittel OG ha Enhet = m³
+df_omega_filtered_armering = df_omega[
+    df_omega["Tittel"].astype(str).str.contains(sok_armering, case=False, na=False)
+].copy()
+
+df_omega_filtered_betong = df_omega[
+    (df_omega["Tittel"].astype(str).str.contains(sok_betong, case=False, na=False)) &
+    (df_omega["Enhet"].astype(str).str.lower() == "m³")
+].copy()
+
+df_omega_filtered = pd.concat([df_omega_filtered_armering, df_omega_filtered_betong]).drop_duplicates()
+
+# OMEGA filtering completed
+
+# Lag mappinger for Armering og Betong
+df_omega_armering = df_omega_filtered_armering.copy()
+df_omega_betong = df_omega_filtered_betong.copy()
+
+omega_armering_codes = set(df_omega_armering["Navn (Prosesskode)"].astype(str).unique())
+omega_betong_codes = set(df_omega_betong["Navn (Prosesskode)"].astype(str).unique())
+
+# Unique codes collected
+
+# === LAGRA OMEGA-REFERENCE-DATA FØR AGGREGERING ===
+# Summer Kontraktsmengde og Rapportert Mengde frå OMEGA (før noko aggregering)
+omega_ref_kontrakt_arm = df_omega_armering["Kontraktsmengde"].sum()
+omega_ref_kontrakt_bet = df_omega_betong["Kontraktsmengde"].sum()
+omega_ref_kontrakt_total = omega_ref_kontrakt_arm + omega_ref_kontrakt_bet
+
+omega_ref_rapp_arm = df_omega_armering["Rapportert mengde (Kumulativ)"].sum()
+omega_ref_rapp_bet = df_omega_betong["Rapportert mengde (Kumulativ)"].sum()
+omega_ref_rapp_total = omega_ref_rapp_arm + omega_ref_rapp_bet
+
+# Funksjon for å finne Mengdelistepost-grupper for en rad
+# Beregn mengdelistepost-kolonnene ein gong før loopen (ikkje for hver rad)
+meng_cols = [c for c in final.columns if c.startswith("Mengdelistepost_")]
+
+def find_all_mengdelistepost_groups(row, omega_armering_codes, omega_betong_codes, meng_cols):
+    """
+    Returnér liste: [(hovudkode, armeringspost, betongpost, er_første_betong), ...]
+
+    Scenario A — Modellen har spesifikk betong-/armeringspost (Forslag 3):
+        '1303.03.05.231.18.16' er i omega_betong_codes → bruk direkte,
+        finn tilhøyrande armeringspost frå Omega under same foreldrekode.
+        Armeringsvekta leggast berre på éin rad per PE (via skal_få_vekt-logikk).
+
+    Scenario B — Modellen har foreldrekode (fallback):
+        '1303.03.05.231.18' → finn alle betong-/armeringspostar under
+        denne koden i Omega (eitt sett per betongpost).
+    """
+    meng_values = [str(row[col]).strip() if pd.notna(row[col]) else None for col in meng_cols]
+    meng_values = [v for v in meng_values if v and v != "nan"]
+
+    if not meng_values:
+        return [(None, None, None, True)]
+
+    # Partisjoner kodar frå modellen
+    direct_betong = []  # Betongkodar gjevne direkte av modellen
+    direct_arm    = []  # Armeringskodar gjevne direkte av modellen
+    family_codes  = []  # Foreldrekodar som treng Omega-sub-oppslag
+
+    for code in meng_values:
+        if code in omega_betong_codes:
+            direct_betong.append(code)
+        elif code in omega_armering_codes:
+            direct_arm.append(code)
+        else:
+            parts = code.split(".")
+            if len(parts) >= 4:
+                family_codes.append(code)
+
+    result_groups = []
+
+    # --- Scenario A: modellen har eksakte betong-/armeringskodar ---
+    if direct_betong or direct_arm:
+        # Grupper betongpostar etter foreldrekode (koden minus siste nivå)
+        parent_to_bets = {}
+        for code in direct_betong:
+            parts = code.split(".")
+            parent = ".".join(parts[:-1])
+            parent_to_bets.setdefault(parent, []).append(code)
+
+        # Dersom berre armeringskodar (ingen betong) — lag gruppe utan betong
+        if not parent_to_bets:
+            for code in direct_arm:
+                parts = code.split(".")
+                parent = ".".join(parts[:-1])
+                parent_to_bets.setdefault(parent, [])
+
+        for parent in sorted(parent_to_bets):
+            bets = sorted(parent_to_bets[parent])
+
+            # Finn armeringspost(ar): direkte frå modellen, elles Omega-oppslag.
+            # Viss modellen gjev FLEIRE stål-postar direkte (t.d. "1303.x.7.1; 1303.x.7.2"),
+            # lag ei gruppe per stål-post slik at ALLE postar dukkar opp i Sammendraget.
+            if direct_arm:
+                arm_postar = sorted(direct_arm)
+            elif parent in omega_armering_by_prefix:
+                cands = sorted([c for c in omega_armering_by_prefix[parent]
+                                if c.startswith(parent + ".")])
+                arm_postar = [cands[0]] if cands else [None]
+            else:
+                arm_postar = [None]
+
+            if bets:
+                # Éin rad per (stål-post × betong-post); berre første betong-post får volum
+                for arm_post in arm_postar:
+                    for i, bet in enumerate(bets):
+                        result_groups.append((parent, arm_post, bet, i == 0))
+            else:
+                for arm_post in arm_postar:
+                    result_groups.append((parent, arm_post, None, True))
+
+    # --- Scenario B: modellen har foreldrekode — finn sub-postar i Omega ---
+    # Hopp berre over foreldrekodar der Scenario A allereie fann betong-post.
+    # Viss Scenario A berre fann arm (inga betong), let Scenario B finne betong frå Omega.
+    if family_codes:
+        handled_parents = {p for p, bets in parent_to_bets.items() if bets} if (direct_betong or direct_arm) else set()
+
+        families = {}
+        for code in family_codes:
+            if code in handled_parents:
+                continue  # foreldrekoden er alt dekt av dei direkte betong-kodane
+            parts = code.split(".")
+            family_prefix = ".".join(parts[:4])
+            families.setdefault(family_prefix, []).append(code)
+
+        for family_prefix in sorted(families):
+            codes_sorted = sorted(families[family_prefix], key=lambda x: x.count("."))
+            hovedkode = codes_sorted[0]
+
+            if hovedkode in handled_parents:
+                continue
+
+            armering_post = None
+            if hovedkode in omega_armering_by_prefix:
+                cands = sorted([c for c in omega_armering_by_prefix[hovedkode]
+                                if c.startswith(hovedkode + ".")])
+                if cands:
+                    armering_post = cands[0]
+
+            if hovedkode in omega_betong_by_prefix:
+                betong_cands = sorted([c for c in omega_betong_by_prefix[hovedkode]
+                                       if c.startswith(hovedkode + ".")])
+                for i, bet in enumerate(betong_cands):
+                    result_groups.append((hovedkode, armering_post, bet, i == 0))
+            else:
+                result_groups.append((hovedkode, armering_post, None, True))
+
+    return result_groups if result_groups else [(None, None, None, True)]
+
+# Få vekt-kolonnene og Mengdelistepost-kolonnene
+vekt_cols = [c for c in final.columns if c.startswith("Vekt_")]
+
+# === OPTIMALISERING: Pre-compute OMEGA lookups ===
+# all_omega_codes_set og omega_codes_with_prefix er allerede definert tidligere
+
+# Pre-compute: Løsmasser-flagg for alle OMEGA-koder
+losmassereferanse_cache = {}
+for idx, row in df_omega.iterrows():
+    code = str(row["Navn (Prosesskode)"])
+    tittel = str(row.get("Tittel", ""))
+    losmassereferanse_cache[code] = "løsmasser" in tittel.lower()
+
+# Pre-compute: Enhet-flagg for alle OMEGA-koder
+enhet_cache = {}
+for idx, row in df_omega.iterrows():
+    code = str(row["Navn (Prosesskode)"])
+    enhet = str(row.get("Enhet", ""))
+    enhet_cache[code] = enhet.lower() == "m³"
+
+# Pre-compute: Bygg dict som mapper familie-prefix til armering/betong poster
+omega_armering_by_prefix = {}
+omega_betong_by_prefix = {}
+
+for code in omega_armering_codes:
+    # Ekstraher familie-prefix (første 4-5 nivåer)
+    parts = code.split(".")
+    if len(parts) >= 4:
+        # Prøv både 4 og 5 nivåer for å dekke forskjellige strukturer
+        for prefix_len in [4, 5]:
+            if len(parts) >= prefix_len:
+                prefix = ".".join(parts[:prefix_len])
+                if prefix not in omega_armering_by_prefix:
+                    omega_armering_by_prefix[prefix] = []
+                omega_armering_by_prefix[prefix].append(code)
+
+for code in omega_betong_codes:
+    parts = code.split(".")
+    if len(parts) >= 4:
+        for prefix_len in [4, 5]:
+            if len(parts) >= prefix_len:
+                prefix = ".".join(parts[:prefix_len])
+                if prefix not in omega_betong_by_prefix:
+                    omega_betong_by_prefix[prefix] = []
+                omega_betong_by_prefix[prefix].append(code)
+
+# Lag en liste med resultater
+results = []
+processed_pe_vekt = set()  # Hold styr på PE-er som allerede har fått vekt
+
+for idx, row in final.iterrows():
+    groups = find_all_mengdelistepost_groups(row, omega_armering_codes, omega_betong_codes, meng_cols)
+    pe = row.get("FOB_Produksjonsenhet_rep")
+    
+    # FILTER: Kun rader som har betong skal være med
+    # Sjekk 1: Fagkapittel inneholder "betong"
+    # Sjekk 2: Gruppen har en betong-post i OMEGA
+    # Sjekk 3: Hvis fagkapittel har betong men ingen betong-post, sjekk at det ikke er løsmasser
+    fagkapittel = row.get(fagkapittel_col, "")
+    har_betong_i_fagkapittel = "betong" in str(fagkapittel).lower()
+    
+    # Filtrer grupper
+    groups_med_betong = []
+    for h, a, b, is_first in groups:
+        if b is not None:
+            # Har betong-post i OMEGA - inkluder alltid
+            groups_med_betong.append((h, a, b, is_first))
+        elif har_betong_i_fagkapittel and h is not None:
+            # Ingen betong-post, men fagkapittel sier betong
+            # Sjekk om hovedkoden refererer til løsmasser i OMEGA (bruk cache)
+            hoved_str = str(h)
+            losmassereferanse = losmassereferanse_cache.get(hoved_str, False)
+
+            # NYTT: Sjekk også om hovedkoden selv har enhet m³ OG er betong (bruk cache)
+            har_riktig_enhet = enhet_cache.get(hoved_str, True)  # Default: inkluder hvis ikke funnet
+            hoved_er_betong = hoved_str in omega_betong_codes  # Sjekk om hovedkoden selv er en betongpost
+
+            # VIKTIG: Sjekk om hovedkoden finnes i OMEGA i det hele tatt
+            hoved_finnes_i_omega = hoved_str in all_omega_codes_set or any(
+                hoved_str + "." == prefix for prefix in omega_codes_with_prefix
+            )
+
+            if not losmassereferanse and har_riktig_enhet:
+                if hoved_er_betong:
+                    # Ikke løsmasser OG har riktig enhet OG er betong - inkluder (selv om betong-post mangler)
+                    groups_med_betong.append((h, a, b, is_first))
+                elif not hoved_finnes_i_omega:
+                    # Hovedkoden finnes IKKE i OMEGA - inkluder for å vise i rapport
+                    groups_med_betong.append((h, a, b, is_first))
+    
+    # Hvis ingen grupper kvalifiserer, hopp over denne raden helt
+    if not groups_med_betong:
+        continue
+    
+    # Hvis det er flere mengdelisteposter (familier), lag en rad for hver
+    # Hvis det kun er én, lag én rad
+    for hoved, arm, bet, er_første_betong in groups_med_betong:
+        # Sjekk om hovedkoden finnes i OMEGA
+        exists_in_omega, _ = post_exists_in_omega(str(hoved), all_omega_codes_set, omega_codes_with_prefix) if hoved else (False, "")
+
+        # Bestem om denne raden skal få vekt
+        # Regel: Vekt legges kun på den første raden som finnes i OMEGA for denne PE
+        # Hvis ingen finnes i OMEGA, legg vekt på første rad
+        skal_få_vekt = False
+
+        if pe not in processed_pe_vekt:
+            # Sjekk om denne PE har noen rad som finnes i OMEGA (blant de med betong)
+            pe_rader_i_denne_iterasjon = [g for g in groups_med_betong]
+            har_omega_rad = any(
+                post_exists_in_omega(str(g[0]), all_omega_codes_set, omega_codes_with_prefix)[0]
+                for g in pe_rader_i_denne_iterasjon if g[0]
+            )
+
+            if har_omega_rad:
+                # Kun gi vekt til rader som finnes i OMEGA
+                if exists_in_omega:
+                    skal_få_vekt = True
+                    processed_pe_vekt.add(pe)
+            else:
+                # Ingen rader finnes i OMEGA - gi vekt til første rad
+                skal_få_vekt = True
+                processed_pe_vekt.add(pe)
+
+        # Volum berre på første betong-rad per familie — unngår dobbelttelling
+        # når fleire betong-postar er under same foreldre-kode.
+        volum_for_rad = row.get(vol_col) if er_første_betong else 0.0
+
+        # Bruk FOB_Staal_Mengde (frå FOB_Info.FOB_Mengde) som Total_Vekt når tilgjengeleg.
+        # Dette gir korrekt stålvekt i kg direkte frå prosjektdata, i staden for
+        # den beregnede armeringsvekta frå ARM-modellen.
+        _fob_staal_val = row.get(_FOB_STAAL_COL)
+        _har_fob_staal = (
+            _fob_staal_val is not None
+            and not pd.isna(_fob_staal_val)
+            and float(_fob_staal_val) > 0
+        )
+
+        # Armeringsvekta skal kome frå ARM-modellen (summen av PGF_RIB_Info.Vekt
+        # per produksjonsenhet, pluss omfarpåslag for LM-jern). FOB_Mengde-verdien
+        # frå betongelementet vert teken vare på i eiga kontrollkolonne, slik at
+        # avvik mellom modell og bokført mengde er synleg i staden for å overstyre.
+        _modell_vekt = (
+            row.get("Total_Armering_Vekt", 0.0)
+            + row.get("Total_LM_Vekt", 0.0) * 0.072
+        )
+
+        result = {
+            "Produksjonsenhet": pe,
+            "Total_Volum": volum_for_rad,
+            "Total_Vekt": _modell_vekt if skal_få_vekt else 0.0,
+            "FOB_Vekt": (
+                float(_fob_staal_val) if _har_fob_staal else 0.0
+            ) if skal_få_vekt else 0.0,
+            "Total_Vekt_Utregnet": row.get("Total_Vekt_Utregnet", 0.0) if skal_få_vekt else 0.0,
+            "Total_LM_Vekt": row.get("Total_LM_Vekt", 0.0) if skal_få_vekt else 0.0,
+            "Har_LM": row.get("Har_LM", False) if skal_få_vekt else False,
+            "Mengdelistepost_Hovedkode": hoved,
+            "Mengdelistepost_Armering": arm,
+            "Mengdelistepost_Betong": bet
+        }
+        
+        # Legg til vekt-kolonner (kun hvis denne raden skal få vekt)
+        for vekt_col in vekt_cols:
+            result[vekt_col] = row.get(vekt_col, 0.0) if skal_få_vekt else 0.0
+        
+        results.append(result)
+
+third_df = pd.DataFrame(results)
+
+# Tydeleg feilmelding når ingen betong-rader kvalifiserte (tom third_df).
+# Vanlegaste årsak: feil Omega-fil — prosesskodane i Omega matchar ikkje
+# mengdelistepostane i BIM-dataa (t.d. K10/1301-data mot ein K7/1302-1303-Omega),
+# eller volum manglar slik at alle RIB-rader vart filtrert vekk.
+if third_df.empty or "Mengdelistepost_Armering" not in third_df.columns:
+    raise RuntimeError(
+        "Ingen betong-/armeringsrader kvalifiserte for rapporten (tom third_df).\n"
+        "Sannsynleg årsak: Omega-fila matchar ikkje BIM-dataa. Kontroller at du "
+        "brukar RETT Omega for dette prosjektet — prosesskodane må ha same prefiks "
+        "som mengdelistepostane i modellen (t.d. 1301 for K10 Skøyen, ikkje "
+        "1302/1303 som er K7 Lysaker/Vækerø). Sjekk òg at 'Bruk FOB_Mengde for "
+        "RIB-volum' er avhuka når datasettet manglar PGF_Kalkyle.PGF_Volum."
+    )
+
+# === LAGRA MENGDE FØR AGGREGERING ===
+# Summer berre UNIKE poster (ikkje duplikater per rad)
+unique_arm_posts = third_df["Mengdelistepost_Armering"].dropna().unique()
+unique_bet_posts = third_df["Mengdelistepost_Betong"].dropna().unique()
+
+# Lag indeksert oppslag for raskere søk
+df_omega_armering_idx = df_omega_armering.set_index("Navn (Prosesskode)")
+df_omega_betong_idx = df_omega_betong.set_index("Navn (Prosesskode)")
+
+# Helper for safe indexed lookup
+def get_omega_value_fast(df_idx, code, column):
+    """Fast lookup using indexed dataframe"""
+    try:
+        val = df_idx.loc[code, column] if code in df_idx.index else 0.0
+        # Håndter NaN - returner 0.0 i stedet for NaN
+        if pd.isna(val):
+            return 0.0
+        return float(val)
+    except (KeyError, ValueError):
+        return 0.0
+
+# Beregn totaler før aggregering (raskere ved å bruke indekserte df-er)
+third_df_kontrakt_arm_before = sum(
+    get_omega_value_fast(df_omega_armering_idx, x, "Kontraktsmengde")
+    for x in unique_arm_posts
+)
+third_df_kontrakt_bet_before = sum(
+    get_omega_value_fast(df_omega_betong_idx, x, "Kontraktsmengde")
+    for x in unique_bet_posts
+)
+
+third_df_rapp_arm_before = sum(
+    get_omega_value_fast(df_omega_armering_idx, x, "Rapportert mengde (Kumulativ)")
+    for x in unique_arm_posts
+)
+third_df_rapp_bet_before = sum(
+    get_omega_value_fast(df_omega_betong_idx, x, "Rapportert mengde (Kumulativ)")
+    for x in unique_bet_posts
+)
+
+# === LOGG FOR VEKT-FLYTTING ===
+vekt_flytting_log = []
+
+# Aggreger rader med samme poster-kombinasjon
+if third_df.shape[0] > 0:
+    # === SPESIALFILTRERING: For PE med flere mengdelisteposter ===
+    # Volum: Behold på original rad
+    # Vekt: Flytt all vekt til raden med størst volum
+    
+    # Finn produksjonsenheter som har flere mengdelisteposter
+    pe_counts = third_df.groupby("Produksjonsenhet")["Mengdelistepost_Hovedkode"].nunique()
+    pe_med_flere_posts = set(pe_counts[pe_counts > 1].index)
+    
+    if len(pe_med_flere_posts) > 0:
+        # Found PEs with multiple mengdelisteposter
+        report_lines.append(f"\n{'='*70}")
+        report_lines.append(f"VEKT-REBALANSERING")
+        report_lines.append(f"{'='*70}")
+        report_lines.append(f"\nFunnet {len(pe_med_flere_posts)} produksjonsenheter med flere mengdelisteposter.")
+        report_lines.append("Vekt flyttes til mengdelistepost med størst volum.")
+        report_lines.append("\nDetaljer finnes i egen tabell i dokumentasjonen.")
+        
+        vekt_flyttet_count = 0
+        for pe in pe_med_flere_posts:
+            # Finn alle rader for denne PE
+            pe_mask = third_df["Produksjonsenhet"] == pe
+            pe_rader = third_df[pe_mask]
+            
+            # Finn raden med størst volum
+            rad_med_storst_volum = pe_rader["Total_Volum"].idxmax()
+            andre_rader = [idx for idx in pe_rader.index if idx != rad_med_storst_volum]
+            
+            if andre_rader:
+                # Beregn total vekt fra de andre radene
+                vekt_å_flytte = third_df.loc[andre_rader, "Total_Vekt"].sum()
+                vekt_utregnet_å_flytte = 0.0
+                lm_vekt_å_flytte = 0.0
+                fob_vekt_å_flytte = 0.0
+                if "FOB_Vekt" in third_df.columns:
+                    fob_vekt_å_flytte = third_df.loc[andre_rader, "FOB_Vekt"].sum()
+                if "Total_Vekt_Utregnet" in third_df.columns:
+                    vekt_utregnet_å_flytte = third_df.loc[andre_rader, "Total_Vekt_Utregnet"].sum()
+                if "Total_LM_Vekt" in third_df.columns:
+                    lm_vekt_å_flytte = third_df.loc[andre_rader, "Total_LM_Vekt"].sum()
+                
+                vekt_per_kolonne = {}
+                for vekt_col in vekt_cols:
+                    vekt_per_kolonne[vekt_col] = third_df.loc[andre_rader, vekt_col].sum()
+                
+                # Logg informasjon
+                alle_hovedkoder = pe_rader["Mengdelistepost_Hovedkode"].tolist()
+                alle_volum = pe_rader["Total_Volum"].tolist()
+                alle_vekter_før = pe_rader["Total_Vekt"].tolist()
+                
+                # Sett vekt til 0 på de andre radene (men behold volum!)
+                for idx in andre_rader:
+                    hovedkode = third_df.loc[idx, "Mengdelistepost_Hovedkode"]
+                    volum = third_df.loc[idx, "Total_Volum"]
+                    
+                    third_df.at[idx, "Total_Vekt"] = 0.0
+                    if "FOB_Vekt" in third_df.columns:
+                        third_df.at[idx, "FOB_Vekt"] = 0.0
+                    if "Total_Vekt_Utregnet" in third_df.columns:
+                        third_df.at[idx, "Total_Vekt_Utregnet"] = 0.0
+                    if "Total_LM_Vekt" in third_df.columns:
+                        third_df.at[idx, "Total_LM_Vekt"] = 0.0
+                    for vekt_col in vekt_cols:
+                        third_df.at[idx, vekt_col] = 0.0
+                    
+                    # Marker som utgått (vekt flyttet)
+                    third_df.at[idx, "Produksjonsenhet"] = f"[VEKT FLYTTET] {pe}"
+                
+                # Legg til all vekt på raden med størst volum
+                vekt_før_flytting = third_df.loc[rad_med_storst_volum, "Total_Vekt"]
+                third_df.at[rad_med_storst_volum, "Total_Vekt"] += vekt_å_flytte
+                if "FOB_Vekt" in third_df.columns:
+                    third_df.at[rad_med_storst_volum, "FOB_Vekt"] += fob_vekt_å_flytte
+                if "Total_Vekt_Utregnet" in third_df.columns:
+                    third_df.at[rad_med_storst_volum, "Total_Vekt_Utregnet"] += vekt_utregnet_å_flytte
+                if "Total_LM_Vekt" in third_df.columns:
+                    third_df.at[rad_med_storst_volum, "Total_LM_Vekt"] += lm_vekt_å_flytte
+                for vekt_col in vekt_cols:
+                    third_df.at[rad_med_storst_volum, vekt_col] += vekt_per_kolonne[vekt_col]
+                
+                største_volum = third_df.loc[rad_med_storst_volum, "Total_Volum"]
+                hovedkode_storst = third_df.loc[rad_med_storst_volum, "Mengdelistepost_Hovedkode"]
+                total_vekt_etter = third_df.loc[rad_med_storst_volum, "Total_Vekt"]
+                
+                # Logg detaljer
+                vekt_flytting_log.append({
+                    'Produksjonsenhet': pe,
+                    'Antall_Mengdelisteposter': len(alle_hovedkoder),
+                    'Mengdelisteposter': '; '.join(str(x) for x in alle_hovedkoder),
+                    'Post_Med_Størst_Volum': hovedkode_storst,
+                    'Størst_Volum_m3': største_volum,
+                    'Vekt_Flyttet_kg': vekt_å_flytte,
+                    'Total_Vekt_kg': total_vekt_etter
+                })
+                
+                vekt_flyttet_count += 1
+        
+        # Ikke skriv detaljert info til report_lines (kun til tabell)
+        report_lines.append(f"\nTotalt {vekt_flyttet_count} produksjonsenheter prosessert.")
+        # Vekt rebalancing completed
+    
+    # Grupper på poster-kombinasjoner
+    group_cols = ["Mengdelistepost_Hovedkode", "Mengdelistepost_Armering", "Mengdelistepost_Betong"]
+    
+    # Aggreger: summer volum, vekt totalt, Total_Vekt_Utregnet, LM-vekt og alle vekt-per-størrelse
+    agg_dict = {
+        "Total_Volum": "sum",
+        "Total_Vekt": "sum",
+        "Total_Vekt_Utregnet": "sum",
+    }
+    if "FOB_Vekt" in third_df.columns:
+        agg_dict["FOB_Vekt"] = "sum"
+
+    # Legg til LM-kolonner hvis de finnes
+    if "Total_LM_Vekt" in third_df.columns:
+        agg_dict["Total_LM_Vekt"] = "sum"
+    if "Har_LM" in third_df.columns:
+        agg_dict["Har_LM"] = "any"  # True hvis minst én rad har LM
+    
+    # Summer alle vekt-kolonner
+    for vekt_col in vekt_cols:
+        agg_dict[vekt_col] = "sum"
+    
+    # Behold første verdier av Produksjonsenhet (eller slå sammen)
+    third_df_agg = third_df.groupby(group_cols, dropna=False).agg(agg_dict).reset_index()
+    
+    # Legg til Produksjonsenhet (joint av alle unike verdier)
+    prod_mapping = third_df.groupby(group_cols, dropna=False)["Produksjonsenhet"].apply(
+        lambda x: "; ".join(sorted(set(str(v) for v in x.dropna() if str(v) != "nan")))
+    ).reset_index()
+    prod_mapping.columns = group_cols + ["Produksjonsenhet"]
+    
+    third_df_agg = third_df_agg.merge(prod_mapping, on=group_cols)
+    
+    # Legg til data fra OMEGA - separate for Armering og Betong
+    # FØ: Bygga ein lookup-tabell for unike poster (unngå duplikat-telling)
+    unique_arm_posts_dict = {}
+    for post in third_df_agg["Mengdelistepost_Armering"].dropna().unique():
+        match = df_omega[df_omega["Navn (Prosesskode)"] == str(post).strip()]
+        if not match.empty:
+            unique_arm_posts_dict[post] = (
+                match["Kontraktsmengde"].iloc[0],
+                match["Rapportert mengde (Kumulativ)"].iloc[0]
+            )
+        else:
+            unique_arm_posts_dict[post] = (None, None)
+    
+    unique_bet_posts_dict = {}
+    for post in third_df_agg["Mengdelistepost_Betong"].dropna().unique():
+        match = df_omega[df_omega["Navn (Prosesskode)"] == str(post).strip()]
+        if not match.empty:
+            unique_bet_posts_dict[post] = (
+                match["Kontraktsmengde"].iloc[0],
+                match["Rapportert mengde (Kumulativ)"].iloc[0]
+            )
+        else:
+            unique_bet_posts_dict[post] = (None, None)
+    
+    # Legg til OMEGA-data for Armering (bruk raskere map istedenfor apply)
+    arm_values = third_df_agg["Mengdelistepost_Armering"].map(unique_arm_posts_dict, na_action='ignore')
+    third_df_agg[["Kontraktsmengde_Armering", "Rapportert_Mengde_Kumulativ_Armering"]] = pd.DataFrame(
+        [arm_values[i] if pd.notna(arm_values[i]) else (None, None) for i in third_df_agg.index],
+        index=third_df_agg.index,
+        columns=["Kontraktsmengde_Armering", "Rapportert_Mengde_Kumulativ_Armering"]
+    )
+    
+    # Legg til OMEGA-data for Betong (bruk raskere map istedenfor apply)
+    bet_values = third_df_agg["Mengdelistepost_Betong"].map(unique_bet_posts_dict, na_action='ignore')
+    third_df_agg[["Kontraktsmengde_Betong", "Rapportert_Mengde_Kumulativ_Betong"]] = pd.DataFrame(
+        [bet_values[i] if pd.notna(bet_values[i]) else (None, None) for i in third_df_agg.index],
+        index=third_df_agg.index,
+        columns=["Kontraktsmengde_Betong", "Rapportert_Mengde_Kumulativ_Betong"]
+    )
+    
+    # === VIKTIG: Mengde berre på første rad for kvar post (unngå duplikattelling) ===
+    # Merk duplikater (alle unntatt første forekomst) - MYKJE raskere enn iterrows
+    
+    # For Armering
+    dup_mask_arm = third_df_agg["Mengdelistepost_Armering"].duplicated(keep='first')
+    third_df_agg.loc[dup_mask_arm, ["Kontraktsmengde_Armering", "Rapportert_Mengde_Kumulativ_Armering"]] = None
+    
+    # For Betong
+    dup_mask_bet = third_df_agg["Mengdelistepost_Betong"].duplicated(keep='first')
+    third_df_agg.loc[dup_mask_bet, ["Kontraktsmengde_Betong", "Rapportert_Mengde_Kumulativ_Betong"]] = None
+    
+    # === LEGG TIL KOLONNE FOR Å SJEKKE OM HOVEDKODE FINNES I OMEGA ===
+    # Sjekk om Mengdelistepost_Hovedkode finnes i OMEGA (enten eksakt eller som underpost)
+    # Hvis den finnes, sett "X", ellers tom
+    # (all_omega_codes_set er allerede definert tidligere)
+    
+    def check_hovedkode_in_omega(hovedkode):
+        """Sjekk om hovedkoden finnes i OMEGA (eksakt eller via underposter)"""
+        if pd.isna(hovedkode):
+            return ""
+        hovedkode_str = str(hovedkode).strip()
+        exists, match_type = post_exists_in_omega(hovedkode_str, all_omega_codes_set, omega_codes_with_prefix)
+        if exists:
+            return "X"
+        return ""
+    
+    third_df_agg["Finnes_i_OMEGA"] = third_df_agg["Mengdelistepost_Hovedkode"].apply(check_hovedkode_in_omega)
+    
+    # === SPESIALREGEL: Når samme produksjonsenhet har flere mengdeposter ===
+    # Fjern OMEGA-data (Armering/Betong) fra rader hvor hovedkode IKKE finnes i OMEGA
+    # (kun når produksjonsenheten har flere rader)
+    pe_counts = third_df_agg["Produksjonsenhet"].value_counts()
+    pe_med_flere = pe_counts[pe_counts > 1].index
+    
+    if len(pe_med_flere) > 0:
+        # Found PEs with flere mengdeposter
+        for pe in pe_med_flere:
+            pe_rows = third_df_agg[third_df_agg["Produksjonsenhet"] == pe]
+            # Finn rader som IKKE finnes i OMEGA
+            rows_ikke_i_omega = pe_rows[pe_rows["Finnes_i_OMEGA"] != "X"]
+            
+            if not rows_ikke_i_omega.empty:
+                # Fjern OMEGA-data fra disse radene
+                for idx in rows_ikke_i_omega.index:
+                    third_df_agg.loc[idx, ["Kontraktsmengde_Armering", "Rapportert_Mengde_Kumulativ_Armering"]] = None
+                    third_df_agg.loc[idx, ["Kontraktsmengde_Betong", "Rapportert_Mengde_Kumulativ_Betong"]] = None
+                
+                # Removed OMEGA data from non-OMEGA rows
+    
+    # === AVVIK MODELL vs FOB_MENGDE ===
+    # Total_Vekt er no armeringa slik ho ligg i ARM-modellen; FOB_Vekt er kg-verdien
+    # betongelementet sjølv oppgir. Positivt avvik = meir armering modellert enn bokført.
+    if "FOB_Vekt" in third_df_agg.columns:
+        _mv = pd.to_numeric(third_df_agg["Total_Vekt"], errors="coerce")
+        _fv = pd.to_numeric(third_df_agg["FOB_Vekt"], errors="coerce")
+        third_df_agg["Avvik_Modell_FOB_%"] = (
+            ((_mv - _fv) / _fv * 100).where(_fv > 0)
+        ).replace([np.inf, -np.inf], np.nan).round(1)
+
+    # === OPPRETT NYTT ARK FOR ARMERINGSDETALJER ===
+    # Lag DataFrame med mengdelistepost for armering, totalvekt og alle vekt-per-diameter
+    _arm_src_cols = ["Mengdelistepost_Armering", "Total_Vekt"] + (
+        ["FOB_Vekt"] if "FOB_Vekt" in third_df_agg.columns else []
+    ) + vekt_cols
+    armering_details = third_df_agg[_arm_src_cols].dropna(
+        subset=["Mengdelistepost_Armering"]
+    ).copy()
+
+    # Aggreger på Mengdelistepost_Armering (summer vekter)
+    agg_dict_arm = {"Total_Vekt": "sum"}
+    if "FOB_Vekt" in armering_details.columns:
+        agg_dict_arm["FOB_Vekt"] = "sum"
+    for vcol in vekt_cols:
+        agg_dict_arm[vcol] = "sum"
+
+    armering_details = armering_details.groupby("Mengdelistepost_Armering").agg(agg_dict_arm).reset_index()
+    
+    # Legg til Total_Vekt_Utregnet i armering_details
+    if "Total_Vekt_Utregnet" in third_df_agg.columns:
+        vekt_utregnet_per_arm = third_df_agg[
+            ["Mengdelistepost_Armering", "Total_Vekt_Utregnet"]
+        ].dropna(subset=["Mengdelistepost_Armering"]).groupby("Mengdelistepost_Armering")["Total_Vekt_Utregnet"].sum().reset_index()
+        
+        armering_details = armering_details.merge(vekt_utregnet_per_arm, on="Mengdelistepost_Armering", how="left")
+        
+        # Legg til en kolonne som viser forholdet
+        armering_details["Vekt_Forhold"] = (
+            armering_details["Total_Vekt_Utregnet"] / armering_details["Total_Vekt"]
+        ).replace([np.inf, -np.inf], np.nan).round(2)
+
+    # Avvik mot FOB_Mengde også på postnivå
+    if "FOB_Vekt" in armering_details.columns:
+        _mv = pd.to_numeric(armering_details["Total_Vekt"], errors="coerce")
+        _fv = pd.to_numeric(armering_details["FOB_Vekt"], errors="coerce")
+        armering_details["Avvik_Modell_FOB_%"] = (
+            ((_mv - _fv) / _fv * 100).where(_fv > 0)
+        ).replace([np.inf, -np.inf], np.nan).round(1)
+
+    # Reorganiser kolonner
+    cols_order = [
+        "Produksjonsenhet",
+        "Mengdelistepost_Hovedkode",
+        "Finnes_i_OMEGA",
+        "Mengdelistepost_Armering",
+        "Mengdelistepost_Betong",
+        "Total_Volum",
+        "Total_Vekt",
+        "FOB_Vekt",
+        "Avvik_Modell_FOB_%",
+        "Total_Vekt_Utregnet",
+        "Total_LM_Vekt",
+        "Har_LM",
+        "Kontraktsmengde_Armering",
+        "Rapportert_Mengde_Kumulativ_Armering",
+        "Kontraktsmengde_Betong",
+        "Rapportert_Mengde_Kumulativ_Betong"
+    ]
+    
+    # Fjern vekt-per-diameter kolonner fra sammendraget
+    third_df_agg = third_df_agg[[c for c in cols_order if c in third_df_agg.columns]]
+    
+    # ETTER aggregering: summer kun unike poster (ikkje duplikater per rad)
+    # Bruk drop_duplicates isteden for groupby().first() - mykje raskere
+    third_df_kontrakt_arm_after = third_df_agg.dropna(subset=["Mengdelistepost_Armering"]).drop_duplicates("Mengdelistepost_Armering")["Kontraktsmengde_Armering"].sum()
+    third_df_kontrakt_bet_after = third_df_agg.dropna(subset=["Mengdelistepost_Betong"]).drop_duplicates("Mengdelistepost_Betong")["Kontraktsmengde_Betong"].sum()
+    third_df_rapp_arm_after = third_df_agg.dropna(subset=["Mengdelistepost_Armering"]).drop_duplicates("Mengdelistepost_Armering")["Rapportert_Mengde_Kumulativ_Armering"].sum()
+    third_df_rapp_bet_after = third_df_agg.dropna(subset=["Mengdelistepost_Betong"]).drop_duplicates("Mengdelistepost_Betong")["Rapportert_Mengde_Kumulativ_Betong"].sum()
+    
+    # Sjekk differansar (håndter NaN)
+    import math
+    def safe_diff(a, b):
+        """Beregn diff, returner 0 hvis begge er NaN"""
+        if (isinstance(a, float) and math.isnan(a)) and (isinstance(b, float) and math.isnan(b)):
+            return 0.0
+        if (isinstance(a, float) and math.isnan(a)) or (isinstance(b, float) and math.isnan(b)):
+            return float('inf')  # Ett er NaN, ett er ikke - stor diff
+        return abs(a - b)
+    
+    diff_kontrakt_arm = safe_diff(third_df_kontrakt_arm_before, third_df_kontrakt_arm_after)
+    diff_kontrakt_bet = safe_diff(third_df_kontrakt_bet_before, third_df_kontrakt_bet_after)
+    diff_rapp_arm = safe_diff(third_df_rapp_arm_before, third_df_rapp_arm_after)
+    diff_rapp_bet = safe_diff(third_df_rapp_bet_before, third_df_rapp_bet_after)
+    
+    # === FINAL VALIDATION TEST ===
+    print("\n" + "="*60)
+    print("FINAL VALIDATION - MENGDE PRESERVATION TEST")
+    print("="*60)
+    
+    # Check armering
+    arm_ok = diff_kontrakt_arm < 0.01 and diff_rapp_arm < 0.01
+    
+    # Check betong  
+    bet_ok = diff_kontrakt_bet < 0.01 and diff_rapp_bet < 0.01
+    
+    # Overall status
+    all_ok = arm_ok and bet_ok
+    
+    print(f"\nTotalt:")
+    print(f"\nKontraktsmengde_Armering: {third_df_kontrakt_arm_after:.2f}", end="")
+    if arm_ok:
+        print(f" [OK] (matches \"fór aggregering\")")
+    else:
+        print(f" [FEIL] (expected {third_df_kontrakt_arm_before:.2f})")
+    
+    print(f"Rapportert_Mengde_Kumulativ_Armering: {third_df_rapp_arm_after:.2f}", end="")
+    if arm_ok:
+        print(f" [OK] (matches \"fór aggregering\")")
+    else:
+        print(f" [FEIL] (expected {third_df_rapp_arm_before:.2f})")
+    
+    print(f"\nMengde er nå korrekt preservert - du får:")
+    print(f"\n[OK] Mengde vises berre på første forekomst av kvar post")
+    print(f"[OK] Duplikate poster har NaN på andre radene")
+    print(f"[OK] Sum totalt stemmer perfekt med input-data")
+    
+    # Check vekt og volum (skal være lik før og etter aggregering)
+    # Beregn forventet vekt/volum fra third_df (FØR aggregering)
+    expected_vekt = third_df["Total_Vekt"].sum()
+    expected_volum = third_df["Total_Volum"].sum()
+    
+    output_vekt = third_df_agg["Total_Vekt"].sum()
+    output_volum = third_df_agg["Total_Volum"].sum()
+    
+    vekt_ok = abs(expected_vekt - output_vekt) < 0.01
+    volum_ok = abs(expected_volum - output_volum) < 0.01
+    
+    if vekt_ok:
+        print(f"[OK] Vekt før aggregering: {expected_vekt:.2f} kg = etter aggregering: {output_vekt:.2f} kg")
+    else:
+        print(f"[FEIL] Vekt validering FAILED (før: {expected_vekt:.2f}, etter: {output_vekt:.2f})")
+    
+    if volum_ok:
+        print(f"[OK] Volum før aggregering: {expected_volum:.2f} m3 = etter aggregering: {output_volum:.2f} m3")
+    else:
+        print(f"[FEIL] Volum validering FAILED (før: {expected_volum:.2f}, etter: {output_volum:.2f})")
+    
+    all_ok = all_ok and vekt_ok and volum_ok
+    
+    # === VALIDERING: SAMMENLIGN MED RÅ ARMERINGSMODELL ===
+    # Beregn hvor mye armering som er tapt i prosesseringen
+    print(f"\n" + "="*60)
+    print("VALIDERING: SAMMENLIGNING MED RÅ ARMERINGSMODELL")
+    print("="*60)
+    
+    prosessert_vekt = output_vekt
+    tapt_vekt = total_vekt_raw - prosessert_vekt
+    prosent_beholdt = (prosessert_vekt / total_vekt_raw * 100) if total_vekt_raw > 0 else 0
+    prosent_tapt = (tapt_vekt / total_vekt_raw * 100) if total_vekt_raw > 0 else 0
+    
+    print(f"\nRå armeringsmodell (innlesning):")
+    print(f"  Total vekt: {total_vekt_raw:.2f} kg")
+    print(f"  Antall jern: {total_antall_jern}")
+    print(f"  Jern uten mengdelistepost: {jern_uten_mengde} (vekt: {vekt_uten_mengde:.2f} kg)")
+    
+    print(f"\nProsessert data (sluttdokument):")
+    print(f"  Total vekt i rapport: {prosessert_vekt:.2f} kg")
+    
+    print(f"\nDifferanse:")
+    print(f"  Vekt tapt i prosessering: {tapt_vekt:.2f} kg ({prosent_tapt:.1f}%)")
+    print(f"  Vekt beholdt: {prosessert_vekt:.2f} kg ({prosent_beholdt:.1f}%)")
+    
+    # Sjekk om det er store tap
+    if prosent_tapt > 5:
+        print(f"\n[WARNING] Mer enn 5% av armeringsvekten er tapt i prosesseringen!")
+        print(f"[WARNING] Sjekk om alle jern har korrekte mengdelisteposter og produksjonsenheter")
+    elif prosent_tapt > 1:
+        print(f"\n[INFO] {prosent_tapt:.1f}% av armeringsvekten er tapt i prosesseringen")
+    else:
+        print(f"\n[OK] Minimal tap i prosesseringen ({prosent_tapt:.1f}%)")
+    
+    print("="*60 + "\n")
+    
+    # Check all markers
+    all_markers_ok = (diff_kontrakt_arm < 0.01 and diff_kontrakt_bet < 0.01 and 
+                      diff_rapp_arm < 0.01 and diff_rapp_bet < 0.01)
+    
+    if all_markers_ok:
+        print(f"[OK] Alle [OK] markerings visning")
+    else:
+        print(f"[FEIL] Some validations failed")
+    
+    if all_ok:
+        print(f"\nSkriptet er no ferdig og korrekt!")
+    
+    print(f"\n" + "="*60)
+
+    # === FILTRER VEKK RADER HVOR BETONG-POST IKKE HAR ENHET m³ ===
+    # ENHET-SJEKK: Checking betong-post enhet
+    
+    # Fjern rader hvis Betong-post finnes i OMEGA men IKKE i den filtrerte listen (med enhet=m³)
+    rows_to_remove = []
+    
+    for idx, row in third_df_agg.iterrows():
+        bet_post = row.get("Mengdelistepost_Betong")
+        
+        # Sjekk hvis Betong-post finnes
+        if pd.notna(bet_post):
+            bet_post_str = str(bet_post).strip()
+            
+            # Hvis posten er i OMEGA men IKKE i den filtrerte betong-listen (m³-filter), mark for sletting
+            omega_match = df_omega[df_omega["Navn (Prosesskode)"] == bet_post_str]
+            if not omega_match.empty and bet_post_str not in omega_betong_codes:
+                enhet = omega_match["Enhet"].iloc[0]
+                rows_to_remove.append((idx, bet_post_str, enhet))
+    
+    if rows_to_remove:
+        # Slett radene
+        indices_to_drop = [row[0] for row in rows_to_remove]
+        third_df_agg = third_df_agg.drop(indices_to_drop).reset_index(drop=True)
+    else:
+        # No rows to remove
+        pass
+
+    # === EKSTRA ARK: MANGLENDE KONTRAKTSMENGDER FRA SAMME OMRÅDE ===
+    # Finn alle områdekoder (første 4+2 siffer) fra modellen
+    områdekoder = set()
+    for idx, row in third_df_agg.iterrows():
+        hovedkode = row.get("Mengdelistepost_Hovedkode")
+        if pd.notna(hovedkode):
+            kode_str = str(hovedkode).strip()
+            parts = kode_str.split(".")
+            # Første 4 siffer = stasjon, neste 2 = sted
+            if len(parts) >= 2:
+                områdekode = f"{parts[0]}.{parts[1]}"  # f.eks. "1303.04"
+                områdekoder.add(områdekode)
+    
+    print(f"\n[INFO] Fant {len(områdekoder)} unike områdekoder i modellen: {sorted(områdekoder)}")
+    
+    # Finn alle eksisterende mengdelisteposter fra third_df_agg
+    eksisterende_posts = set()
+    for col in ["Mengdelistepost_Hovedkode", "Mengdelistepost_Armering", "Mengdelistepost_Betong"]:
+        for val in third_df_agg[col].dropna().unique():
+            eksisterende_posts.add(str(val).strip())
+    
+    # Finn manglende kontraktsmengder fra OMEGA
+    manglende_mengder = []
+    
+    for områdekode in områdekoder:
+        # Finn alle OMEGA-poster som starter med denne områdekoden
+        omega_posts_i_område = df_omega[
+            df_omega["Navn (Prosesskode)"].astype(str).str.startswith(områdekode + ".")
+        ]
+        
+        for idx, omega_row in omega_posts_i_område.iterrows():
+            post_kode = str(omega_row["Navn (Prosesskode)"]).strip()
+            
+            # Sjekk om posten allerede finnes i third_df_agg
+            if post_kode not in eksisterende_posts:
+                # Dette er en manglende post - legg til i tabellen
+                manglende_mengder.append({
+                    "Områdekode": områdekode,
+                    "Navn_Prosesskode": post_kode,
+                    "Tittel": omega_row.get("Tittel", ""),
+                    "Kontraktsmengde": omega_row.get("Kontraktsmengde", 0.0),
+                    "Rapportert_Mengde_Kumulativ": omega_row.get("Rapportert mengde (Kumulativ)", 0.0),
+                    "Enhet": omega_row.get("Enhet", ""),
+                    "Fagkapittel": omega_row.get("Fagkapittel", ""),
+                })
+    
+    # Lag DataFrame for manglende mengder
+    if manglende_mengder:
+        df_manglende = pd.DataFrame(manglende_mengder)
+        print(f"\n[INFO] Fant {len(df_manglende)} manglende kontraktsmengder fra samme områdekoder")
+        
+        # Tell antall poster med "PLASSTØPT NORMALBETONG"
+        plasstopt_mask = df_manglende["Tittel"].astype(str).str.contains("PLASSTØPT NORMALBETONG", case=False, na=False)
+        plasstopt_count = plasstopt_mask.sum()
+        print(f"[INFO] Av disse har {plasstopt_count} tittelen 'PLASSTØPT NORMALBETONG'")
+        
+        # Sorter etter områdekode og prosesskode
+        df_manglende = df_manglende.sort_values(["Områdekode", "Navn_Prosesskode"]).reset_index(drop=True)
+    else:
+        df_manglende = pd.DataFrame()
+        print(f"\n[INFO] Ingen manglende kontraktsmengder funnet")
+    
+    # === LAG LM-OVERSIKT ===
+    # Filtrer kun mengdelisteposter som har LM
+    # Sjekk først om kolonnene finnes
+    if "Har_LM" in third_df_agg.columns and "Total_LM_Vekt" in third_df_agg.columns:
+        df_lm_oversikt = third_df_agg[
+            (third_df_agg["Har_LM"] == True) & 
+            (third_df_agg["Total_LM_Vekt"] > 0)
+        ].copy()
+    else:
+        df_lm_oversikt = pd.DataFrame()
+        print(f"\n[WARNING] LM-kolonner finnes ikke i aggregert data - hopper over LM-oversikt")
+    
+    if not df_lm_oversikt.empty:
+        # Velg relevante kolonner
+        df_lm_oversikt = df_lm_oversikt[[
+            "Mengdelistepost_Hovedkode",
+            "Mengdelistepost_Armering", 
+            "Mengdelistepost_Betong",
+            "Total_LM_Vekt",
+            "Total_Vekt",
+            "Produksjonsenhet"
+        ]].copy()
+        
+        # Legg til prosentandel
+        df_lm_oversikt["LM_Andel_%"] = (
+            (df_lm_oversikt["Total_LM_Vekt"] / df_lm_oversikt["Total_Vekt"]) * 100
+        ).round(1)
+        
+        # Sorter etter LM-vekt (høyest først)
+        df_lm_oversikt = df_lm_oversikt.sort_values("Total_LM_Vekt", ascending=False).reset_index(drop=True)
+        
+        print(f"\n[INFO] Fant {len(df_lm_oversikt)} mengdelisteposter med LM")
+        print(f"  Total LM-vekt: {df_lm_oversikt['Total_LM_Vekt'].sum():.2f} kg")
+    else:
+        df_lm_oversikt = pd.DataFrame()
+        print(f"\n[INFO] Ingen mengdelisteposter med LM funnet")
+
+    # === LAG LM-OMFAR-RAPPORT: detaljert per jern ===
+    import math as _math
+    if formkode_col in df_armering.columns:
+        _lm_mask = df_armering[formkode_col].astype(str).str.contains("LM", case=False, na=False)
+        _df_lm_jern = df_armering[_lm_mask].copy()
+    else:
+        _df_lm_jern = pd.DataFrame()
+
+    if not _df_lm_jern.empty and diam_col in _df_lm_jern.columns and length_col in _df_lm_jern.columns:
+        # Smart enhetsdeteksjon: <1 → meter → ×1000, ellers allerede i mm
+        def _conv_mm_diam_omfar(v):
+            if pd.isna(v):
+                return float("nan")
+            v = float(v)
+            return v * 1000 if v < 1.0 else v
+        _df_lm_jern["_Diameter_mm"] = _df_lm_jern[diam_col].apply(_conv_mm_diam_omfar)
+
+        def _conv_m_omfar(v):
+            if pd.isna(v):
+                return 0.0
+            v = float(v)
+            return v / 1000 if v > 100 else v
+
+        _df_lm_jern["_Lengde_m"] = _df_lm_jern[length_col].apply(_conv_m_omfar)
+
+        # B35 omfarlengde-faktorer, enkeltstang
+        # Generelt:            50ø for D<=20mm,  60ø for D>=25mm
+        # Overkant dekker T>250mm: 60ø for D<=20mm,  80ø for D>=25mm
+        def _b35_faktor_generelt(d_mm):
+            return 60 if d_mm >= 25 else 50
+
+        def _b35_faktor_dekker(d_mm):
+            return 80 if d_mm >= 25 else 60
+
+        _df_lm_jern["_Omfarlengde_m"] = _df_lm_jern["_Diameter_mm"].apply(
+            lambda d: round(d * _b35_faktor_generelt(d) / 1000, 4)
+        )
+        _df_lm_jern["_Omfarlengde_Dekker_m"] = _df_lm_jern["_Diameter_mm"].apply(
+            lambda d: round(d * _b35_faktor_dekker(d) / 1000, 4)
+        )
+
+        # Antall omfar = ceil((L - 12) / (12 - omfar_L)) for L > 12, ellers 0.
+        # Hver tapt bar tilforer kun (12 - omfar_L) meter netto, fordi omfar_L meter brukes til overlap.
+        # Eks: L=13.7m, omfar=0.6m -> ceil(1.7 / 11.4) = 1
+        # Eks: L=35.75m, omfar=1.0m -> ceil(23.75 / 11.0) = ceil(2.159) = 3
+        def _ant_omfar(row):
+            L = row["_Lengde_m"]
+            omfar_l = row["_Omfarlengde_m"]
+            if pd.isna(L) or L <= 12 or pd.isna(omfar_l):
+                return 0
+            effective = 12.0 - omfar_l
+            if effective <= 0:
+                effective = 0.001  # sikkerhet mot null-divisjon
+            return _math.ceil((L - 12.0) / effective)
+
+        _df_lm_jern["_Antall_omfar"] = _df_lm_jern.apply(_ant_omfar, axis=1)
+        _df_lm_jern["_Mengde_omfar_m"] = (
+            _df_lm_jern["_Antall_omfar"] * _df_lm_jern["_Omfarlengde_m"]
+        ).round(4)
+        _l_safe_omfar = _df_lm_jern["_Lengde_m"].replace(0, float("nan"))
+        # Vekt inkl. omfar: vekt er proporsjonal med lengde for samme diameter
+        _vekt_raw_omfar = _df_lm_jern[weight_col].fillna(0).astype(float)
+        _df_lm_jern["_Vekt_inkl_omfar"] = (
+            _vekt_raw_omfar * (1 + (_df_lm_jern["_Mengde_omfar_m"] / _l_safe_omfar).fillna(0))
+        ).round(4)
+        # Omfar-andel som vektprosent per jern: (vekt_inkl - vekt) / vekt * 100
+        _vekt_safe = _vekt_raw_omfar.replace(0, float("nan"))
+        _df_lm_jern["_Prosent_omfar"] = (
+            (_df_lm_jern["_Vekt_inkl_omfar"] - _vekt_raw_omfar) / _vekt_safe * 100
+        ).round(2)
+
+        # 0% omfar vises tomt
+        _df_lm_jern["_Prosent_omfar"] = _df_lm_jern["_Prosent_omfar"].where(
+            _df_lm_jern["_Prosent_omfar"] != 0, other=float("nan")
+        )
+
+        # === B35 DEKKER T>250mm: parallell beregning ===
+        def _ant_omfar_dekker(row):
+            L = row["_Lengde_m"]
+            omfar_l = row["_Omfarlengde_Dekker_m"]
+            if pd.isna(L) or L <= 12 or pd.isna(omfar_l):
+                return 0
+            effective = 12.0 - omfar_l
+            if effective <= 0:
+                effective = 0.001
+            return _math.ceil((L - 12.0) / effective)
+
+        _df_lm_jern["_Antall_omfar_Dekker"] = _df_lm_jern.apply(_ant_omfar_dekker, axis=1)
+        _df_lm_jern["_Mengde_omfar_Dekker_m"] = (
+            _df_lm_jern["_Antall_omfar_Dekker"] * _df_lm_jern["_Omfarlengde_Dekker_m"]
+        ).round(4)
+        _df_lm_jern["_Vekt_inkl_omfar_Dekker"] = (
+            _vekt_raw_omfar * (1 + (_df_lm_jern["_Mengde_omfar_Dekker_m"] / _l_safe_omfar).fillna(0))
+        ).round(4)
+        _df_lm_jern["_Prosent_omfar_Dekker"] = (
+            (_df_lm_jern["_Vekt_inkl_omfar_Dekker"] - _vekt_raw_omfar) / _vekt_safe * 100
+        ).round(2)
+        _df_lm_jern["_Prosent_omfar_Dekker"] = _df_lm_jern["_Prosent_omfar_Dekker"].where(
+            _df_lm_jern["_Prosent_omfar_Dekker"] != 0, other=float("nan")
+        )
+
+        # Svinn = resten av siste stav: (n+1)*12 - L - n*omfar_L
+        # Eks: L=14m, omfar=1m, n=1 -> 2*12 - 14 - 1 = 9m
+        _n_omfar = _df_lm_jern["_Antall_omfar"]
+        _df_lm_jern["_Svinn_m"] = (
+            (_n_omfar + 1) * 12.0
+            - _df_lm_jern["_Lengde_m"]
+            - _n_omfar * _df_lm_jern["_Omfarlengde_m"]
+        ).round(4)
+        # Sett NaN der det ikke er omfar (ingen svinn-problem)
+        _df_lm_jern["_Svinn_m"] = _df_lm_jern["_Svinn_m"].where(_n_omfar > 0, other=float("nan"))
+
+        # Lengde siste stav = L - n*(12 - omfar_L)  (=12 - Svinn)
+        # Eks: L=14m, omfar=1m, n=1 -> 14 - 1*11 = 3m
+        _df_lm_jern["_Lengde_siste_stav_m"] = (
+            _df_lm_jern["_Lengde_m"]
+            - _n_omfar * (12.0 - _df_lm_jern["_Omfarlengde_m"])
+        ).round(4)
+        _df_lm_jern["_Lengde_siste_stav_m"] = _df_lm_jern["_Lengde_siste_stav_m"].where(
+            _n_omfar > 0, other=float("nan")
+        )
+
+        # === OMFAR-REGEL: Generelt vs Dekker T>250mm per PE ===
+        # Kolonne: er denne PE registrert som dekker T>250mm?
+        _df_lm_jern["_Dekker_tykk"] = _df_lm_jern[key].apply(
+            lambda pe: "Ja" if str(pe).strip() in pe_dekker_tykk else ""
+        )
+
+        # Bruk pe_dekker_tykk (sett av RIB-analyse tidligere) for a velge riktig regel
+        _df_lm_jern["_Omfar_Regel"] = _df_lm_jern[key].apply(
+            lambda pe: "Dekker >250mm" if str(pe).strip() in pe_dekker_tykk else "Generelt"
+        )
+        # Valgt omfarlengde, antall, mengde, andel, vekt basert pa regel
+        _dekker_mask = _df_lm_jern["_Omfar_Regel"] == "Dekker >250mm"
+        _df_lm_jern["_Omfarlengde_Valgt_m"] = _df_lm_jern["_Omfarlengde_m"]
+        _df_lm_jern.loc[_dekker_mask, "_Omfarlengde_Valgt_m"] = _df_lm_jern.loc[_dekker_mask, "_Omfarlengde_Dekker_m"]
+
+        _df_lm_jern["_Antall_omfar_Valgt"] = _df_lm_jern["_Antall_omfar"]
+        _df_lm_jern.loc[_dekker_mask, "_Antall_omfar_Valgt"] = _df_lm_jern.loc[_dekker_mask, "_Antall_omfar_Dekker"]
+
+        _df_lm_jern["_Mengde_omfar_Valgt_m"] = _df_lm_jern["_Mengde_omfar_m"]
+        _df_lm_jern.loc[_dekker_mask, "_Mengde_omfar_Valgt_m"] = _df_lm_jern.loc[_dekker_mask, "_Mengde_omfar_Dekker_m"]
+
+        _df_lm_jern["_Prosent_omfar_Valgt"] = _df_lm_jern["_Prosent_omfar"]
+        _df_lm_jern.loc[_dekker_mask, "_Prosent_omfar_Valgt"] = _df_lm_jern.loc[_dekker_mask, "_Prosent_omfar_Dekker"]
+
+        _df_lm_jern["_Vekt_inkl_omfar_Valgt"] = _df_lm_jern["_Vekt_inkl_omfar"]
+        _df_lm_jern.loc[_dekker_mask, "_Vekt_inkl_omfar_Valgt"] = _df_lm_jern.loc[_dekker_mask, "_Vekt_inkl_omfar_Dekker"]
+
+        # Svinn og lengde siste stav basert pa valgt regel
+        _n_valgt = _df_lm_jern["_Antall_omfar_Valgt"]
+        _df_lm_jern["_Svinn_Valgt_m"] = (
+            (_n_valgt + 1) * 12.0
+            - _df_lm_jern["_Lengde_m"]
+            - _n_valgt * _df_lm_jern["_Omfarlengde_Valgt_m"]
+        ).round(4)
+        _df_lm_jern["_Svinn_Valgt_m"] = _df_lm_jern["_Svinn_Valgt_m"].where(_n_valgt > 0, other=float("nan"))
+
+        _df_lm_jern["_Lengde_siste_stav_Valgt_m"] = (
+            _df_lm_jern["_Lengde_m"]
+            - _n_valgt * (12.0 - _df_lm_jern["_Omfarlengde_Valgt_m"])
+        ).round(4)
+        _df_lm_jern["_Lengde_siste_stav_Valgt_m"] = _df_lm_jern["_Lengde_siste_stav_Valgt_m"].where(
+            _n_valgt > 0, other=float("nan")
+        )
+
+        _omfar_src = [
+            key, mengle, weight_col,
+            "_Diameter_mm", "_Lengde_m",
+            "_Dekker_tykk",
+            "_Omfarlengde_Valgt_m", "_Antall_omfar_Valgt", "_Mengde_omfar_Valgt_m",
+            "_Prosent_omfar_Valgt", "_Vekt_inkl_omfar_Valgt",
+            "_Svinn_Valgt_m", "_Lengde_siste_stav_Valgt_m",
+        ]
+        _omfar_src = [c for c in _omfar_src if c in _df_lm_jern.columns]
+        df_lm_omfar = _df_lm_jern[_omfar_src].copy()
+        df_lm_omfar = df_lm_omfar.rename(columns={
+            key:                             "Produksjonsenhet",
+            mengle:                          "OMEGA-post Armering",
+            weight_col:                      "Vekt (kg)",
+            "_Diameter_mm":                  "Diameter (mm)",
+            "_Lengde_m":                     "Lengde (m)",
+            "_Dekker_tykk":                  "Dekker >250mm",
+            "_Omfarlengde_Valgt_m":          "Omfarlengde (m) [50D/60D, 60D/80D for Dekker >250mm]",
+            "_Antall_omfar_Valgt":           "Antall omfar [=ceil((L-12)/(12-omfar_L))]",
+            "_Mengde_omfar_Valgt_m":         "Mengde omfar (m) [=n*omfar_L]",
+            "_Prosent_omfar_Valgt":          "Omfar andel (%) [=(vekt_inkl-vekt)/vekt*100]",
+            "_Vekt_inkl_omfar_Valgt":        "Vekt inkl. omfar (kg)",
+            "_Svinn_Valgt_m":                "Svinn siste stav (m) [=(n+1)*12-L-n*omfar_L]",
+            "_Lengde_siste_stav_Valgt_m":    "Lengde siste stav (m) [=L-n*(12-omfar_L)]",
+        })
+        # Sorter: tyngste jern oerst
+        _vekt_omfar = pd.to_numeric(df_lm_omfar.get("Vekt (kg)"), errors="coerce")
+        df_lm_omfar = df_lm_omfar.iloc[_vekt_omfar.argsort()[::-1].values].reset_index(drop=True)
+        print(f"\n[INFO] LM-omfar rapport: {len(df_lm_omfar)} jern, "
+              f"total mengde omfar: {df_lm_omfar.get('Mengde omfar (m) [=n*omfar_L]', pd.Series([0])).sum():.2f} m")
+        if pe_dekker_tykk:
+            print(f"[INFO] PE-er med Dekker-regel (T>250mm): {len(pe_dekker_tykk)}")
+
+        # ================================================================
+        # PE-oppsummering: svinn-gjenbruk per produksjonsenhet
+        # Innad i en PE (per diameter): avkapp fra ett jern kan dekke
+        # siste stav for et annet, så man slipper å kjøpe nytt 12m-jern.
+        #
+        # Fase 1  Greedy best-fit: match enkelt-avkapp mot siste-stav-behov.
+        # Fase 2  Kombinering:     sveis gjenværende avkapp med omfar for
+        #         å dekke behov som enkelt-avkapp ikke dekket.
+        #         Eks: 3m + 3m avkapp, dia=12mm -> kombinert = 3+3-0.6 = 5.4m
+        #         Rester resirkuleres tilbake i pool.
+        # ================================================================
+        import bisect as _bisect
+
+        # Standard armeringsstål: kg/m = D_mm^2 * 0.00617
+        def _kg_per_m(d_mm):
+            return d_mm ** 2 * 0.00617
+
+        _pe_rows = []
+        _df_omfar_jern = _df_lm_jern[_df_lm_jern["_Antall_omfar"] > 0].copy()
+
+        if not _df_omfar_jern.empty:
+            for _pe, _pe_grp in _df_omfar_jern.groupby(key):
+                # OMEGA-post(er) for denne PE
+                _omega_posts = ""
+                if mengle in _pe_grp.columns:
+                    _omega_posts = "; ".join(sorted(
+                        _pe_grp[mengle].dropna().astype(str).unique()
+                    ))
+                _n_jern = len(_pe_grp)
+                _diameters = sorted(_pe_grp["_Diameter_mm"].dropna().unique())
+                _dia_str = ", ".join(
+                    str(int(d)) if d == int(d) else str(d) for d in _diameters
+                )
+                _total_vekt = round(
+                    _pe_grp[weight_col].fillna(0).astype(float).sum(), 2
+                )
+                _total_vekt_inkl = round(
+                    _pe_grp["_Vekt_inkl_omfar_Valgt"].fillna(_pe_grp["_Vekt_inkl_omfar"]).fillna(0).sum(), 2
+                )
+                _total_svinn_for = round(
+                    _pe_grp["_Svinn_m"].fillna(0).sum(), 4
+                )
+
+                # Regn svinn-vekt før gjenbruk: sum(svinn_m * kg_per_m) per jern
+                _svinn_vekt_for = 0.0
+                for _, _rr in _pe_grp.iterrows():
+                    if pd.notna(_rr["_Svinn_m"]):
+                        _svinn_vekt_for += _rr["_Svinn_m"] * _kg_per_m(_rr["_Diameter_mm"])
+                _svinn_vekt_for = round(_svinn_vekt_for, 2)
+
+                # --- Greedy matching per diameter-gruppe innad i PE ---
+                _spart_pe = 0
+                _all_rest = []         # (rest_m, dia_mm)
+                _kombinert_pe = 0      # antall kombinerte skjøter brukt
+                _ekstra_omfar_vekt = 0.0  # vekt av ekstra omfar fra kombinering
+                for _dia, _dia_grp in _pe_grp.groupby("_Diameter_mm"):
+                    # B35 omfarlengde: bruk riktig regel per PE
+                    _pe_navn_grp = _dia_grp[key].iloc[0] if not _dia_grp.empty else ""
+                    if str(_pe_navn_grp).strip() in pe_dekker_tykk:
+                        _omfar_l = _dia * (80 if _dia >= 25 else 60) / 1000
+                    else:
+                        _omfar_l = _dia * (60 if _dia >= 25 else 50) / 1000
+                    _kpm = _kg_per_m(_dia)
+                    # Hvert jern: (siste_stav, svinn)
+                    _bars_dia = sorted(
+                        [
+                            (row["_Lengde_siste_stav_m"], row["_Svinn_m"])
+                            for _, row in _dia_grp.iterrows()
+                            if pd.notna(row["_Svinn_m"])
+                            and pd.notna(row["_Lengde_siste_stav_m"])
+                        ],
+                        key=lambda x: x[0],
+                        reverse=True,  # største behov først
+                    )
+                    # Pool = sortert liste av tilgjengelige svinn-lengder
+                    _pool_k = []
+                    _unmatched_needs = []  # siste_stav-behov som enkelt-match ikke dekket
+
+                    # --- Fase 1: enkelt-avkapp matching ---
+                    for _siste, _svinn in _bars_dia:
+                        _idx = _bisect.bisect_left(_pool_k, _siste)
+                        if _idx < len(_pool_k):
+                            _rest = round(_pool_k[_idx] - _siste, 4)
+                            _pool_k.pop(_idx)
+                            if _rest > 0:
+                                _ins = _bisect.bisect_left(_pool_k, _rest)
+                                _pool_k.insert(_ins, _rest)
+                            _spart_pe += 1
+                        else:
+                            # Ingen enkelt-match: svinn i pool, behov lagres for fase 2
+                            _ins = _bisect.bisect_left(_pool_k, _svinn)
+                            _pool_k.insert(_ins, _svinn)
+                            _unmatched_needs.append(_siste)
+
+                    # --- Fase 2: kombiner avkapp med omfar for å dekke behov ---
+                    # Sorter udekkede behov største først
+                    _unmatched_needs.sort(reverse=True)
+                    for _need in _unmatched_needs:
+                        if len(_pool_k) < 2:
+                            break
+                        # Prøv å kombinere 2+ biter fra pool (største + nest-største osv)
+                        # Greedy: ta største bit, legg til neste bit (minus omfar) til >= behov
+                        _combo_idx = []
+                        _combo_len = 0.0
+                        # Start med største tilgjengelige
+                        for _ci in range(len(_pool_k) - 1, -1, -1):
+                            if _combo_len == 0.0:
+                                _combo_len = _pool_k[_ci]
+                            else:
+                                _combo_len = round(_combo_len + _pool_k[_ci] - _omfar_l, 4)
+                            _combo_idx.append(_ci)
+                            if _combo_len >= _need:
+                                break
+                        if _combo_len >= _need and len(_combo_idx) >= 2:
+                            # Fjern brukte biter fra pool (høyeste indeks først)
+                            for _ci in sorted(_combo_idx, reverse=True):
+                                _pool_k.pop(_ci)
+                            _rest_c = round(_combo_len - _need, 4)
+                            if _rest_c > 0:
+                                _ins = _bisect.bisect_left(_pool_k, _rest_c)
+                                _pool_k.insert(_ins, _rest_c)
+                            _spart_pe += 1
+                            _kombinert_pe += len(_combo_idx) - 1  # antall ekstra omfar
+                            _ekstra_omfar_vekt += (len(_combo_idx) - 1) * _omfar_l * _kpm
+
+                    _all_rest.extend((_r, _dia) for _r in _pool_k)
+
+                _reelt_svinn = round(sum(r for r, _ in _all_rest), 4)
+
+                # Svinn-vekt etter gjenbruk
+                _svinn_vekt_etter = round(
+                    sum(r * _kg_per_m(d) for r, d in _all_rest), 2
+                )
+
+                # Vekt etter gjenbruk = totalvekt inkl omfar + ekstra omfar fra kombinering + reelt svinn
+                _vekt_etter_gjenbruk = round(_total_vekt_inkl + _ekstra_omfar_vekt + _svinn_vekt_etter, 2)
+
+                _pe_rows.append({
+                    "Produksjonsenhet":                _pe,
+                    "OMEGA-post(er)":                  _omega_posts,
+                    "Antall LM-jern":                  _n_jern,
+                    "Diameter(e) (mm)":                _dia_str,
+                    "Total vekt (kg)":                 _total_vekt,
+                    "Total vekt inkl. omfar (kg)":     _total_vekt_inkl,
+                    "Total svinn før gjenbruk (m)":    _total_svinn_for,
+                    "Svinn etter gjenbruk (m)":        _reelt_svinn,
+                    "Spart 12m-stenger (stk)":         _spart_pe,
+                    "Kombinerte skjøter brukt":         _kombinert_pe,
+                    "Svinn-vekt før gjenbruk (kg)":     _svinn_vekt_for,
+                    "Svinn-vekt etter gjenbruk (kg)":   _svinn_vekt_etter,
+                    "Vekt etter gjenbruk (kg)":         _vekt_etter_gjenbruk,
+                })
+
+        df_pe_svinn = pd.DataFrame(_pe_rows) if _pe_rows else pd.DataFrame()
+        if _pe_rows:
+            _tot_for    = sum(r["Total svinn før gjenbruk (m)"] for r in _pe_rows)
+            _tot_etter  = sum(r["Svinn etter gjenbruk (m)"]     for r in _pe_rows)
+            _tot_spart  = sum(r["Spart 12m-stenger (stk)"]      for r in _pe_rows)
+            _tot_kombi  = sum(r["Kombinerte skjøter brukt"]      for r in _pe_rows)
+            _tot_sv_for = sum(r["Svinn-vekt før gjenbruk (kg)"]  for r in _pe_rows)
+            _tot_sv_ett = sum(r["Svinn-vekt etter gjenbruk (kg)"]for r in _pe_rows)
+            print(f"[INFO] PE-svinn: {len(_pe_rows)} PE-er, "
+                  f"svinn: {_tot_for:.2f}m -> etter gjenbruk: {_tot_etter:.2f}m, "
+                  f"spart {_tot_spart} stenger ({_tot_kombi} kombinerte skjøter), "
+                  f"svinn-vekt: {_tot_sv_for:.1f}kg -> {_tot_sv_ett:.1f}kg")
+        else:
+            print("[INFO] PE-svinn: ingen jern med omfar funnet")
+
+    else:
+        df_lm_omfar = pd.DataFrame()
+        df_pe_svinn = pd.DataFrame()
+        print(f"\n[INFO] LM-omfar rapport: ingen LM-jern funnet")
+
+    # Eksporter til Excel med filnavn-indikasjon
+    from datetime import datetime
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from openpyxl.utils import get_column_letter
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.formatting.rule import CellIsRule
+
+    # ================================================================
+    # Kolonne-omdoping: interne navn -> lesbare norske navn for Excel
+    # ================================================================
+    _RENAME_SAMM = {
+        "Produksjonsenhet":                      "Produksjonsenhet",
+        "Mengdelistepost_Hovedkode":             "Prosesskode",
+        "Finnes_i_OMEGA":                        "I OMEGA",
+        "Mengdelistepost_Armering":              "OMEGA-post: Armering",
+        "Mengdelistepost_Betong":                "OMEGA-post: Betong",
+        "Total_Volum":                           "Volum (m3)",
+        "Total_Vekt":                            "Armeringsvekt modell (kg)",
+        "FOB_Vekt":                              "FOB_Mengde armering (kg)",
+        "Avvik_Modell_FOB_%":                    "Avvik modell mot FOB (%)",
+        "Total_Vekt_Utregnet":                   "Beregnet vekt (kg)",
+        "Total_LM_Vekt":                         "LM-vekt (kg)",
+        "Har_LM":                                "Har LM",
+        "Kontraktsmengde_Armering":              "Kontrakt armering (kg)",
+        "Rapportert_Mengde_Kumulativ_Armering":  "Rapportert armering (kg)",
+        "Kontraktsmengde_Betong":                "Kontrakt betong (m3)",
+        "Rapportert_Mengde_Kumulativ_Betong":    "Rapportert betong (m3)",
+    }
+    _RENAME_MANGLENDE = {
+        "Omradekode":                   "Omradekode",
+        "Navn_Prosesskode":             "Prosesskode",
+        "Tittel":                       "Tittel",
+        "Kontraktsmengde":              "Kontraktsmengde",
+        "Rapportert_Mengde_Kumulativ":  "Rapportert mengde (kumulativ)",
+        "Enhet":                        "Enhet",
+        "Fagkapittel":                  "Fagkapittel",
+    }
+    _RENAME_ARM = {
+        "Mengdelistepost_Armering": "OMEGA-post: Armering",
+        "Total_Vekt":               "Armeringsvekt modell (kg)",
+        "FOB_Vekt":                 "FOB_Mengde armering (kg)",
+        "Avvik_Modell_FOB_%":       "Avvik modell mot FOB (%)",
+        "Total_Vekt_Utregnet":      "Beregnet vekt (kg)",
+        "Vekt_Forhold":             "Vekt-forhold (beregnet/modellvekt)",
+    }
+    _RENAME_LM = {
+        "Mengdelistepost_Hovedkode": "Prosesskode",
+        "Mengdelistepost_Armering":  "OMEGA-post: Armering",
+        "Mengdelistepost_Betong":    "OMEGA-post: Betong",
+        "Total_LM_Vekt":             "LM-vekt (kg)",
+        "Total_Vekt":                "Total vekt (kg)",
+        "Produksjonsenhet":          "Produksjonsenhet",
+        "LM_Andel_%":                "LM-andel (%)",
+    }
+
+    # Lag omdopte kopier (True/False -> Ja/Nei for Har_LM)
+    df_samm_xl = third_df_agg.copy()
+    # --- Advarsel-kolonne: rapportert mengde fra OMEGA overstiger modellmengde ---
+    _rapp_arm = pd.to_numeric(df_samm_xl.get("Rapportert_Mengde_Kumulativ_Armering"), errors="coerce")
+    _rapp_bet = pd.to_numeric(df_samm_xl.get("Rapportert_Mengde_Kumulativ_Betong"),   errors="coerce")
+    _mod_arm  = pd.to_numeric(df_samm_xl.get("Total_Vekt"),   errors="coerce")
+    _mod_bet  = pd.to_numeric(df_samm_xl.get("Total_Volum"),  errors="coerce")
+    _over_arm = _rapp_arm.notna() & _mod_arm.notna() & (_rapp_arm > _mod_arm)
+    _over_bet = _rapp_bet.notna() & _mod_bet.notna() & (_rapp_bet > _mod_bet)
+    df_samm_xl["!"] = (_over_arm | _over_bet).map({True: "!", False: ""})
+    if "Har_LM" in df_samm_xl.columns:
+        df_samm_xl["Har_LM"] = df_samm_xl["Har_LM"].map(
+            {True: "Ja", False: "Nei", "True": "Ja", "False": "Nei"}
+        ).fillna("")
+    df_samm_xl = df_samm_xl.rename(columns=_RENAME_SAMM)
+    df_samm_xl = df_samm_xl.drop(columns=["Beregnet vekt (kg)"], errors="ignore")
+    # Flytt "!" til rett etter "I OMEGA"
+    _scols = list(df_samm_xl.columns)
+    if "!" in _scols and "I OMEGA" in _scols:
+        _scols.remove("!")
+        _scols.insert(_scols.index("I OMEGA") + 1, "!")
+        df_samm_xl = df_samm_xl[_scols]
+    df_mangl_xl = df_manglende.rename(columns=_RENAME_MANGLENDE) if not df_manglende.empty else df_manglende
+    df_arm_xl   = armering_details.rename(columns=_RENAME_ARM) if not armering_details.empty else armering_details
+    df_lm_xl    = df_lm_oversikt.rename(columns=_RENAME_LM)   if not df_lm_oversikt.empty  else df_lm_oversikt
+    df_omfar_xl    = df_lm_omfar.copy()  if not df_lm_omfar.empty  else df_lm_omfar
+    df_pe_svinn_xl = df_pe_svinn.copy()  if not df_pe_svinn.empty  else df_pe_svinn
+
+    # ================================================================
+    # Hjelpefunksjon: Formater hele arbeidsboken etter at data er skrevet
+    # ================================================================
+    def _formater_wb(wb_obj, ts):
+        _F_HDR    = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+        _F_DATA   = Font(name="Calibri", size=10)
+        _F_TITLE  = Font(bold=True, name="Calibri", size=14)
+        _F_OK_F   = Font(name="Calibri", size=10, color="1F6B28")
+        _F_WARN_F = Font(bold=True, name="Calibri", size=10, color="9C2A10")
+        _F_INFO_F = Font(name="Calibri", size=10, color="1565C0")
+        _FILL_HDR_BLA   = PatternFill("solid", fgColor="1F497D")
+        _FILL_HDR_GRONN = PatternFill("solid", fgColor="375623")
+        _FILL_HDR_BRUN  = PatternFill("solid", fgColor="7B3F00")
+        _FILL_HDR_LIM   = PatternFill("solid", fgColor="5F4B8B")
+        _FILL_ADVARSEL   = PatternFill("solid", fgColor="FFF2CC")
+        _FILL_LM_RAD    = PatternFill("solid", fgColor="EDE7F6")
+        _FILL_OFF_WHITE = PatternFill("solid", fgColor="FAFAF8")
+        _ALIGN_TOP  = Alignment(vertical="top", wrap_text=False)
+        _ALIGN_WRAP = Alignment(vertical="top", wrap_text=True)
+        _THIN = Side(style="thin", color="BDBDBD")
+        _BRD  = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
+
+        def _auto_format(ws, df_ref, hdr_fill, tall_kols=None, fryspunkt="A2", hdr_row=1):
+            ncols = len(df_ref.columns)
+            nrows = df_ref.shape[0]
+            data_start = hdr_row + 1
+            for ci in range(1, ncols + 1):
+                c = ws.cell(row=hdr_row, column=ci)
+                c.font = _F_HDR
+                c.fill = hdr_fill
+                c.alignment = _ALIGN_WRAP
+                c.border = _BRD
+            for ri in range(data_start, data_start + nrows):
+                for ci in range(1, ncols + 1):
+                    c = ws.cell(row=ri, column=ci)
+                    c.fill = _FILL_OFF_WHITE
+                    c.font = _F_DATA
+                    c.alignment = _ALIGN_TOP
+                    c.border = _BRD
+            for ci, col_name in enumerate(df_ref.columns, 1):
+                cl = get_column_letter(ci)
+                mx = max(len(str(col_name)), 8)
+                for ri in range(data_start, data_start + nrows):
+                    v = ws.cell(row=ri, column=ci).value
+                    if v is not None:
+                        mx = max(mx, len(str(v)))
+                ws.column_dimensions[cl].width = min(mx + 2, 45)
+            if tall_kols:
+                for col_name, fmt in tall_kols.items():
+                    if col_name in list(df_ref.columns):
+                        ci = list(df_ref.columns).index(col_name) + 1
+                        cl = get_column_letter(ci)
+                        for ri in range(data_start, data_start + nrows):
+                            ws[f"{cl}{ri}"].number_format = fmt
+            ws.freeze_panes = fryspunkt
+
+        def _tabell(ws, df_ref, navn, stil="TableStyleMedium2", hdr_row=1):
+            if df_ref.shape[0] == 0:
+                return
+            mr = hdr_row + df_ref.shape[0]
+            mc = df_ref.shape[1]
+            tbl = Table(displayName=navn, ref=f"A{hdr_row}:{get_column_letter(mc)}{mr}")
+            tbl.tableStyleInfo = TableStyleInfo(
+                name=stil,
+                showFirstColumn=False, showLastColumn=False,
+                showRowStripes=False,  showColumnStripes=False,
+            )
+            ws.add_table(tbl)
+
+        # -- Sammendrag --
+        if "Sammendrag" in wb_obj.sheetnames:
+            ws_s = wb_obj["Sammendrag"]
+            cols_s    = list(df_samm_xl.columns)
+            nrows_s   = df_samm_xl.shape[0]
+
+            # Farger for gruppe-overskrifter
+            _FILL_MODELL     = PatternFill("solid", fgColor="31849B")  # teal
+            _FILL_OMEGA_GRP  = PatternFill("solid", fgColor="C55A11")  # brent oransje
+            _F_GRP           = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+
+            # Bestem hvilke kolonner som tilhorer kvar gruppe
+            _MODELL_KOLS = {"Volum (m3)", "Armeringsvekt modell (kg)",
+                            "FOB_Mengde armering (kg)", "Avvik modell mot FOB (%)",
+                            "LM-vekt (kg)", "Har LM"}
+            _OMEGA_KOLS  = {"Kontrakt armering (kg)", "Rapportert armering (kg)",
+                            "Kontrakt betong (m3)",   "Rapportert betong (m3)"}
+
+            modell_ci = [i+1 for i, c in enumerate(cols_s) if c in _MODELL_KOLS]
+            omega_ci_list = [i+1 for i, c in enumerate(cols_s) if c in _OMEGA_KOLS]
+
+            # Rad 1: gruppe-overskrifter (over sjolve kolonnenavna)
+            ws_s.row_dimensions[1].height = 16
+            if modell_ci:
+                c = ws_s.cell(row=1, column=modell_ci[0], value="Fra Modell")
+                c.font = _F_GRP
+                c.fill = _FILL_MODELL
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.border = _BRD
+                for ci in modell_ci[1:]:
+                    cc = ws_s.cell(row=1, column=ci)
+                    cc.fill = _FILL_MODELL
+                    cc.border = _BRD
+            if omega_ci_list:
+                c = ws_s.cell(row=1, column=omega_ci_list[0], value="Fra Omega")
+                c.font = _F_GRP
+                c.fill = _FILL_OMEGA_GRP
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.border = _BRD
+                for ci in omega_ci_list[1:]:
+                    cc = ws_s.cell(row=1, column=ci)
+                    cc.fill = _FILL_OMEGA_GRP
+                    cc.border = _BRD
+
+            # Rad 2: kolonnenavn med tilpassa farger per gruppe
+            tall_s = {
+                "Volum (m3)":                 '#,##0.00',
+                "Armeringsvekt modell (kg)":  '#,##0',
+                "FOB_Mengde armering (kg)":   '#,##0',
+                "Avvik modell mot FOB (%)":   '+0.0"%";-0.0"%"',
+                "LM-vekt (kg)":            '#,##0',
+                "Kontrakt armering (kg)":  '#,##0',
+                "Rapportert armering (kg)":'#,##0',
+                "Kontrakt betong (m3)":    '#,##0.00',
+                "Rapportert betong (m3)":  '#,##0.00',
+            }
+            _auto_format(ws_s, df_samm_xl, _FILL_HDR_BLA, tall_s,
+                          fryspunkt="A3", hdr_row=2)
+
+            # Overskriv kolonnehader-farge for gruppe-kolonnene
+            for ci in modell_ci:
+                c = ws_s.cell(row=2, column=ci)
+                c.fill = _FILL_MODELL
+                c.font = _F_GRP
+                c.border = _BRD
+            for ci in omega_ci_list:
+                c = ws_s.cell(row=2, column=ci)
+                c.fill = _FILL_OMEGA_GRP
+                c.font = _F_GRP
+                c.border = _BRD
+
+            _tabell(ws_s, df_samm_xl, "Sammendrag", hdr_row=2)
+
+            _FILL_OVER_OMEGA = PatternFill("solid", fgColor="FFCCCC")  # lys rod: rapportert > modell
+            omega_ci  = cols_s.index("I OMEGA") + 1 if "I OMEGA" in cols_s else None
+            utrop_ci  = cols_s.index("!")        + 1 if "!"       in cols_s else None
+            for ri in range(3, nrows_s + 3):
+                i_omega = str(ws_s.cell(row=ri, column=omega_ci).value or "").strip() if omega_ci else "X"
+                utrop   = str(ws_s.cell(row=ri, column=utrop_ci).value or "").strip() if utrop_ci else ""
+                if i_omega != "X":
+                    for ci in range(1, len(cols_s) + 1):
+                        ws_s.cell(row=ri, column=ci).fill = _FILL_ADVARSEL
+                elif utrop == "!":
+                    for ci in range(1, len(cols_s) + 1):
+                        ws_s.cell(row=ri, column=ci).fill = _FILL_OVER_OMEGA
+
+        # -- Manglende_Mengder --
+        if "Manglende_Mengder" in wb_obj.sheetnames:
+            ws_m = wb_obj["Manglende_Mengder"]
+            tall_m = {
+                "Kontraktsmengde":                '#,##0.00',
+                "Rapportert mengde (kumulativ)":  '#,##0.00',
+            }
+            _auto_format(ws_m, df_mangl_xl, _FILL_HDR_GRONN, tall_m)
+            _tabell(ws_m, df_mangl_xl, "Manglende_Mengder")
+
+        # -- Armering_Detaljer --
+        if "Armering_Detaljer" in wb_obj.sheetnames:
+            ws_a = wb_obj["Armering_Detaljer"]
+            tall_a = {"Armeringsvekt modell (kg)": '#,##0',
+                      "FOB_Mengde armering (kg)":  '#,##0',
+                      "Avvik modell mot FOB (%)":  '+0.0"%";-0.0"%"',
+                      "Beregnet vekt (kg)": '#,##0'}
+            for c in df_arm_xl.columns:
+                if c.startswith("Vekt_"):
+                    tall_a[c] = '#,##0'
+            _auto_format(ws_a, df_arm_xl, _FILL_HDR_BRUN, tall_a)
+            _tabell(ws_a, df_arm_xl, "Armering_Detaljer")
+
+        # -- LM_Oversikt --
+        if "LM_Oversikt" in wb_obj.sheetnames:
+            ws_l = wb_obj["LM_Oversikt"]
+            tall_l = {
+                "LM-vekt (kg)":    '#,##0',
+                "Total vekt (kg)": '#,##0',
+                "LM-andel (%)":    '0.0"%"',
+            }
+            _auto_format(ws_l, df_lm_xl, _FILL_HDR_LIM, tall_l)
+            _tabell(ws_l, df_lm_xl, "LM_Oversikt")
+
+        # -- LM_Omfar --
+        if "LM_Omfar" in wb_obj.sheetnames:
+            ws_om = wb_obj["LM_Omfar"]
+            tall_om = {
+                "Vekt (kg)":                                              '#,##0.00',
+                "Diameter (mm)":                                          '0.0',
+                "Lengde (m)":                                             '#,##0.000',
+                "Omfarlengde Generelt (m) [B35: 50D/D<=20, 60D/D>=25]": '#,##0.000',
+                "Antall omfar Generelt [=ceil((L-12)/(12-omfar_L))]": '0',
+                "Mengde omfar Generelt (m) [=n*omfar_L]":              '#,##0.000',
+                "Omfar andel Generelt (%) [=omfar_m/L*100]":           '0.00"%"',
+                "Vekt inkl. omfar Generelt (kg)":                       '#,##0.00',
+                "Omfarlengde Dekker >250mm (m) [B35: 60D/D<=20, 80D/D>=25]": '#,##0.000',
+                "Antall omfar Dekker >250mm":                           '0',
+                "Mengde omfar Dekker >250mm (m)":                       '#,##0.000',
+                "Omfar andel Dekker >250mm (%)": '0.00"%"',
+                "Vekt inkl. omfar Dekker >250mm (kg)":                  '#,##0.00',
+                "Vekt inkl. omfar Valgt (kg) [etter PE-regel]":         '#,##0.00',
+                "Svinn siste stav (m) [=(n+1)*12-L-n*omfar_L]": '#,##0.000',
+                "Lengde siste stav (m) [=L-n*(12-omfar_L)]":    '#,##0.000',
+            }
+            _auto_format(ws_om, df_omfar_xl, _FILL_HDR_LIM, tall_om)
+            _tabell(ws_om, df_omfar_xl, "LM_Omfar")
+
+        # -- LM_PE_Svinn --
+        if "LM_PE_Svinn" in wb_obj.sheetnames:
+            ws_ps = wb_obj["LM_PE_Svinn"]
+            tall_ps = {
+                "Total vekt (kg)":              '#,##0.00',
+                "Total vekt inkl. omfar (kg)":  '#,##0.00',
+                "Total svinn før gjenbruk (m)": '#,##0.000',
+                "Svinn etter gjenbruk (m)":     '#,##0.000',
+                "Spart 12m-stenger (stk)":      '0',
+                "Kombinerte skjøter brukt":      '0',
+                "Svinn-vekt før gjenbruk (kg)": '#,##0.00',
+                "Svinn-vekt etter gjenbruk (kg)":'#,##0.00',
+                "Vekt etter gjenbruk (kg)":       '#,##0.00',
+            }
+            _auto_format(ws_ps, df_pe_svinn_xl, _FILL_HDR_LIM, tall_ps)
+            _tabell(ws_ps, df_pe_svinn_xl, "LM_PE_Svinn")
+            # Fargelegg rader der gjenbruk gir besparelse (spart > 0)
+            _FILL_SPART = PatternFill("solid", fgColor="E2EFDA")  # grønn
+            if "Spart 12m-stenger (stk)" in df_pe_svinn_xl.columns:
+                _sp_idx = list(df_pe_svinn_xl.columns).index("Spart 12m-stenger (stk)") + 1
+                for _row_ps in ws_ps.iter_rows(min_row=2):
+                    _cell_sp = _row_ps[_sp_idx - 1]
+                    if _cell_sp.value is not None and _cell_sp.value > 0:
+                        for _c in _row_ps: _c.fill = _FILL_SPART
+
+        # -- Dokumentasjon: erstatt visuelle separatorlinjer med formatering --
+        if "Dokumentasjon" in wb_obj.sheetnames:
+            ws_d = wb_obj["Dokumentasjon"]
+            _F_DOC_H2  = Font(bold=True, name="Calibri", size=11)
+            _FILL_DOC  = PatternFill("solid", fgColor="1F497D")
+            _F_DOC_W   = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+            for row_cells in ws_d.iter_rows():
+                for cell in row_cells:
+                    if cell.value is None:
+                        continue
+                    txt = str(cell.value)
+                    if txt.startswith("=") and len(txt) > 8:
+                        cell.value = None
+                        continue
+                    if any(w in txt for w in ("VALIDERING", "MENGDE PRESERVATION", "RÅ ARMER", "RAA ARMER")):
+                        cell.font = _F_DOC_W
+                        cell.fill = _FILL_DOC
+                    elif txt.startswith("[OK]"):
+                        cell.font = _F_OK_F
+                    elif txt.startswith("[WARNING]"):
+                        cell.font = _F_WARN_F
+                    elif txt.startswith("[INFO]"):
+                        cell.font = _F_INFO_F
+                    else:
+                        cell.font = Font(name="Calibri", size=10)
+            ws_d.column_dimensions["A"].width = 90
+            ws_d.column_dimensions["B"].width = 20
+
+        # -- Forklaring-ark (nytt, settes forst) --
+        _THIN2 = Side(style="thin", color="BDBDBD")
+        _BRD2  = Border(left=_THIN2, right=_THIN2, top=_THIN2, bottom=_THIN2)
+        _FILL_SEK = PatternFill("solid", fgColor="1F497D")
+        _FILL_SEK_G = PatternFill("solid", fgColor="375623")
+        _FILL_SEK_B = PatternFill("solid", fgColor="7B3F00")
+        _FILL_SEK_L = PatternFill("solid", fgColor="5F4B8B")
+        ws_fk = wb_obj.create_sheet("Forklaring")
+        ws_fk.column_dimensions["A"].width = 30
+        ws_fk.column_dimensions["B"].width = 68
+        ws_fk.column_dimensions["C"].width = 20
+        ws_fk.sheet_view.showGridLines = False
+
+        _F_SEK  = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+        _F_FK   = Font(name="Calibri", size=10)
+        _F_BLD  = Font(bold=True, name="Calibri", size=10)
+        _F_ITA  = Font(italic=True, name="Calibri", size=10, color="555555")
+        _F_TTL  = Font(bold=True, name="Calibri", size=14)
+        _F_META = Font(name="Calibri", size=10, color="555555")
+
+        def _sek(row, tekst, fill, span=3):
+            # Fyll kvar celle manuelt - unngaar MergedCell-problematikk
+            for ci in range(1, span + 1):
+                c = ws_fk.cell(row=row, column=ci)
+                c.fill = fill
+                c.font = _F_SEK
+                c.alignment = Alignment(vertical="center")
+            ws_fk.cell(row=row, column=1).value = tekst
+            ws_fk.row_dimensions[row].height = 18
+
+        def _rad(row, kol, fk, eks=""):
+            ws_fk.cell(row=row, column=1, value=kol).font = _F_BLD
+            c2 = ws_fk.cell(row=row, column=2, value=fk)
+            c2.font = _F_FK
+            c2.alignment = Alignment(wrap_text=True, vertical="top")
+            ws_fk.row_dimensions[row].height = max(15, min(len(fk) // 4, 45))
+            if eks:
+                ws_fk.cell(row=row, column=3, value=eks).font = _F_ITA
+
+        def _farge_rad(row, tekst, fill):
+            c = ws_fk.cell(row=row, column=1)
+            c.fill = fill
+            c.border = _BRD2
+            ws_fk.cell(row=row, column=2, value=tekst).font = _F_FK
+
+        r = 1
+        c_t = ws_fk.cell(row=r, column=1, value="Forklaring - Mengdeuttak Armering")
+        c_t.font = _F_TTL
+        r += 1
+        ws_fk.cell(row=r, column=1, value=f"Generert: {datetime.now().strftime('%d.%m.%Y %H:%M')}").font = _F_META
+        r += 2
+
+        _sek(r, "Om dette dokumentet", _FILL_SEK); r += 1
+        om_tekst = (
+            "Dette dokumentet sammenstiller armeringsvekt og betongvolum fra BIM-modellen (RIB + Armering) "
+            "med kontraktsmengder og rapporterte mengder fra OMEGA. "
+            "Formalet er a kontrollere at modellmengdene stemmer med kontrakten."
+        )
+        c_om = ws_fk.cell(row=r, column=1, value=om_tekst)
+        c_om.font = _F_FK
+        c_om.alignment = Alignment(wrap_text=True, vertical="top")
+        ws_fk.row_dimensions[r].height = 50
+        r += 2
+
+        _sek(r, "Arkenes innhold", _FILL_SEK); r += 1
+        for anavn, afk in [
+            ("Sammendrag",          "Hovedtabell. Armeringsvekt og betongvolum per prosesskode, med OMEGA-kobling."),
+            ("Manglende_Mengder",   "Prosesskoder fra OMEGA i samme omrade som modellen, men som MANGLER i modellen."),
+            ("Armering_Detaljer",   "Detaljtabell for armering per post inkl. vektfordeling per armering-diameter."),
+            ("LM_Oversikt",         "Mengdelisteposter som inneholder Losmasser (LM) i armeringsmodellen."),
+            ("LM_Omfar",            "Detaljert omfar-beregning per LM-jern: lengde, omfarlengde og mengde skjøter."),
+            ("Dokumentasjon",       "Valideringslogg: tallkontroll og rapport om datakvalitet."),
+        ]:
+            _rad(r, anavn, afk); r += 1
+        r += 1
+
+        _sek(r, "Kolonner - Sammendrag", _FILL_SEK); r += 1
+        ws_fk.cell(row=r - 1, column=3, value="Eksempelverdi").font = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+        for kn, fk, ek in [
+            ("Produksjonsenhet",         "Unik ID for produksjonsenhet fra BIM-modellen (RIB).", "PE-K7-0123"),
+            ("Prosesskode",              "Hovedkode fra mengdelisten (hierarkisk, f.eks. 1303.xx.xx.xxx).", "1303.04.05.241"),
+            ("I OMEGA",                  "'X' = koden er funnet i OMEGA. Tom celle = IKKE funnet - se Manglende_Mengder.", "X"),
+            ("!",                         "Advarsel: '!' betyr at rapportert mengde fra OMEGA er hoyrere enn modellmengden (armering eller betong).", "!"),
+            ("OMEGA-post: Armering",      "Tilhorende armeringspost i OMEGA for denne prosesskoden.", "1303.04.05.241.17.1"),
+            ("OMEGA-post: Betong",        "Tilhorende betongpost i OMEGA (enhet m3) for denne prosesskoden.", "1303.04.05.241.1.1"),
+            ("Volum (m3)",               "Betongvolum fra BIM-modellen i m3.", "12.50"),
+            ("Armeringsvekt modell (kg)", "Summen av PGF_RIB_Info.Vekt for armeringsjernene pa produksjonsenheten, pluss 7,2 % bøyetillegg pa LM-armering. Se seksjonen 'Metode: LM-bøyetillegg' i dette arket. Dette er hovedtallet.", "2 517"),
+            ("FOB_Mengde armering (kg)",  "kg-verdien betongelementet selv oppgir i FOB_Mengde pa armeringsposten. Kontrollkolonne - IKKE hovedtallet.", "1 855"),
+            ("Avvik modell mot FOB (%)",  "(modellvekt - FOB) / FOB. Positivt = mer armering modellert enn bokfort i FOB_Mengde.", "+35.7%"),
+            ("Beregnet vekt (kg)",        "Armeringsvekt beregnet fra diameter og lengde - kontrollkolonne (kg).", "2 521"),
+            ("LM-vekt (kg)",              "Del av armeringsvekten som er klassifisert som Losmasser (LM) (kg).", "45"),
+            ("Har LM",                   "'Ja' = denne posten inneholder losmasser (LM).", "Ja"),
+            ("Kontrakt armering (kg)",    "Kontraktsmengde for armeringsposten (fra OMEGA) i kg.", "2 500"),
+            ("Rapportert armering (kg)",  "Kumulativt rapportert mengde for armeringsposten (fra OMEGA) i kg.", "1 800"),
+            ("Kontrakt betong (m3)",      "Kontraktsmengde for betongposten i m3 (fra OMEGA).", "18.00"),
+            ("Rapportert betong (m3)",    "Kumulativt rapportert betongmengde i m3 (fra OMEGA).", "14.20"),
+        ]:
+            _rad(r, kn, fk, ek); r += 1
+        r += 1
+
+        _FILL_OVER_FK = PatternFill("solid", fgColor="FFCCCC")
+        _sek(r, "Fargekoder - Sammendrag", _FILL_SEK); r += 1
+        _farge_rad(r, "[GUL] Prosesskoden er IKKE funnet i OMEGA - maa kontrolleres.", _FILL_ADVARSEL); r += 1
+        _farge_rad(r, "[LYS ROD] Rapportert mengde fra OMEGA er hoyrere enn mengde fra modellen ('!' i advarselkolonnen).", _FILL_OVER_FK); r += 1
+        r += 1
+
+        _sek(r, "Kolonner - Manglende_Mengder", _FILL_SEK_G); r += 1
+        for kn, fk, ek in [
+            ("Omradekode",                    "De to forste niva-ene av prosesskoden - identifiserer omradet.", "1303.04"),
+            ("Prosesskode",                   "Prosesskode fra OMEGA som IKKE er funnet i BIM-modellen.", "1303.04.05.241.3.1"),
+            ("Tittel",                        "Beskrivende navn for prosesskoden i OMEGA.", "PLASSTOPT NORMALBETONG C35/45"),
+            ("Kontraktsmengde",               "Kontraktsmengde for denne posten i OMEGA.", "450.00"),
+            ("Rapportert mengde (kumulativ)", "Kumulativt rapportert mengde i OMEGA for denne posten.", "312.00"),
+            ("Enhet",                         "Maleenhet for denne OMEGA-posten (f.eks. m3, kg, stk).", "m3"),
+            ("Fagkapittel",                   "Fagkapittel posten tilhorer i OMEGA.", "05 Betongarbeider"),
+        ]:
+            _rad(r, kn, fk, ek); r += 1
+        r += 1
+
+        _sek(r, "Kolonner - LM_Oversikt", _FILL_SEK_L); r += 1
+        for kn, fk, ek in [
+            ("Prosesskode",          "Prosesskode for mengdelisteposten fra mengdelisten.", "1303.04.05.241"),
+            ("OMEGA-post: Armering",  "Tilhorende armeringspost i OMEGA.", "1303.04.05.241.17.1"),
+            ("OMEGA-post: Betong",    "Tilhorende betongpost i OMEGA.", "1303.04.05.241.1.1"),
+            ("LM-vekt (kg)",          "Armeringsvekt klassifisert som Losmasser for denne posten (kg).", "125"),
+            ("Total vekt (kg)",       "Total armeringsvekt for denne posten (kg).", "980"),
+            ("Produksjonsenhet",      "Produksjonsenheten(e) som bidrar til denne mengdelisteposten.", "PE-K7-0123"),
+            ("LM-andel (%)",          "Andel av total vekt som er losmasser (prosent).", "12.8"),
+        ]:
+            _rad(r, kn, fk, ek); r += 1
+        r += 1
+
+        _sek(r, "Kolonner - LM_Omfar", _FILL_SEK_L); r += 1
+        for kn, fk, ek in [
+            ("Produksjonsenhet",                     "Produksjonsenhet-ID for dette jernet fra BIM-modellen.", "PE-K7-0123"),
+            ("OMEGA-post Armering",                  "Mengdelistepost(er) for dette jernet (semikolon-separert).", "1303.04.05.241.17.1"),
+            ("Vekt (kg)",                            "Vekt per jern fra BIM-modellen (kg).", "3.75"),
+            ("Diameter (mm)",                        "Stangdiameter (mm).", "10"),
+            ("Lengde (m)",                           "Jernlengde (m). Maks 12m per stav.", "30.0"),
+            ("Omfar-regel (B35)",                    "Hvilken B35-regel som er valgt for denne PE: 'Generelt' eller 'Dekker >250mm'. Detekteres automatisk fra RIB-modellen.", "Generelt"),
+            ("Omfarlengde Generelt (m) [B35: 50D/D<=20, 60D/D>=25]",
+             "B35 generelt enkeltstang: 50 x D_mm for D<=20mm, 60 x D_mm for D>=25mm. "
+             "Eks: D10=0.50m, D12=0.60m, D16=0.80m, D20=1.00m, D25=1.50m, D32=1.92m.", "0.5"),
+            ("Antall omfar Generelt [=ceil((L-12)/(12-omfar_L))]", "Antall skjoter (generelt-regel). Eks: L=13.7m, omfar=0.6m -> ceil(1.7/11.4)=1.", "1"),
+            ("Mengde omfar Generelt (m) [=n*omfar_L]", "Total skjotelengde (generelt-regel) = n x omfarlengde.", "1.5"),
+            ("Omfar andel Generelt (%) [=omfar_m/L*100]", "Skjotelengde som prosent (generelt-regel). Tom = ingen omfar.", "5.0"),
+            ("Vekt inkl. omfar Generelt (kg)",       "Vekt inkl. omfar-tillegg (generelt-regel).", "3.94"),
+            ("Omfarlengde Dekker >250mm (m) [B35: 60D/D<=20, 80D/D>=25]",
+             "B35 overkant dekker T>250mm: 60 x D_mm for D<=20mm, 80 x D_mm for D>=25mm. "
+             "Eks: D10=0.60m, D12=0.72m, D16=0.96m, D20=1.20m, D25=2.00m, D32=2.56m.", "0.6"),
+            ("Antall omfar Dekker >250mm",           "Antall skjoter hvis dekker-regel brukes.", "1"),
+            ("Mengde omfar Dekker >250mm (m)",       "Total skjotelengde hvis dekker-regel brukes.", "1.8"),
+            ("Omfar andel Dekker >250mm (%)",        "Andel omfar hvis dekker-regel brukes.", "6.0"),
+            ("Vekt inkl. omfar Dekker >250mm (kg)",  "Vekt inkl. omfar (dekker-regel).", "3.97"),
+            ("Vekt inkl. omfar Valgt (kg) [etter PE-regel]",
+             "Endelig vekt etter valgt regel per PE. = dekker-vekt for PE-er med T>250mm, ellers generelt-vekt.", "3.97"),
+            ("Svinn siste stav (m) [=(n+1)*12-L-n*omfar_L]", "Rest av siste stav etter skjot (generelt-regel). Tom = ingen omfar.", "9.0"),
+            ("Lengde siste stav (m) [=L-n*(12-omfar_L)]",     "Lengde pa den siste staven (generelt-regel).", "3.0"),
+        ]:
+            _rad(r, kn, fk, ek); r += 1
+        r += 1
+
+        _sek(r, "LM_PE_Svinn", _FILL_SEK_L); r += 1
+        _rad(r, "[Ark]",
+             "Oppsummering per produksjonsenhet: totalvekt, svinn, og gjenbrukspotensial. "
+             "Fase 1: greedy best-fit matching av enkelt-avkapp mot siste-stav-behov. "
+             "Fase 2: kombinering av gjenværende avkapp med omfar for å dekke siste-stav-behov "
+             "som enkelt-match ikke dekket. Eks: 3m+3m avkapp dia=12mm -> 3+3-0.6=5.4m kombinert. "
+             "Vekt beregnes med D^2*0.00617 kg/m (standard armeringsstål). "
+             "Grønne rader = PE-er der gjenbruk gir besparelse.", ""); r += 1
+        for kn, fk, ek in [
+            ("Produksjonsenhet",                "Produksjonsenhet-ID.", "PE-LP051"),
+            ("OMEGA-post(er)",                  "Unike OMEGA-poster for LM-jern i denne PE (semikolon-separert).", "1303.04.05.241.17.1"),
+            ("Antall LM-jern",                  "Antall LM-jern med omfar (L > 12m) i denne PE.", "5"),
+            ("Diameter(e) (mm)",                "Unike stangdiametre blant LM-jernene (komma-separert).", "20, 25"),
+            ("Total vekt (kg)",                 "Sum vekt for LM-jernene i denne PE (fra BIM).", "450.5"),
+            ("Total vekt inkl. omfar (kg)",     "Sum vekt etter omfar-tillegg.", "475.3"),
+            ("Total svinn før gjenbruk (m)",    "Sum svinn (avkapp) FØR matching. = (n+1)*12 - L - n*omfar_L per jern.", "15.0"),
+            ("Svinn etter gjenbruk (m)",        "Reelt svinn ETTER intern gjenbruk (fase 1 + fase 2).", "3.5"),
+            ("Spart 12m-stenger (stk)",         "Antall 12m-stenger spart ved gjenbruk (enkelt + kombinert).", "2"),
+            ("Kombinerte skjøter brukt",         "Antall ekstra omfar-skjøter brukt for å kombinere avkapp i fase 2.", "1"),
+            ("Svinn-vekt før gjenbruk (kg)",     "Vekt av svinn FØR matching (D^2*0.00617 * svinn_m).", "15.4"),
+            ("Svinn-vekt etter gjenbruk (kg)",   "Vekt av reelt svinn ETTER matching.", "3.5"),
+            ("Vekt etter gjenbruk (kg)",          "Total vekt som må kjøpes = vekt_inkl_omfar + ekstra omfar fra kombinering + svinn etter gjenbruk.", "480.2"),
+        ]:
+            _rad(r, kn, fk, ek); r += 1
+
+        r += 1
+        _FILL_SEK_LM = PatternFill("solid", fgColor="D6E4BC")
+        _sek(r, "Metode: LM-boyetillegg (7,2 %)", _FILL_SEK_LM); r += 1
+
+        lm_tekst = [
+            ("Hva er LM-armering?",
+             "LM-armering (Losmasser-armering) er armeringsjern som er plassert i en "
+             "produksjonsenhet klassifisert som losmasser (LM). Disse jernene "
+             "representerer armering i fyllinger, forsterkningsmatter, og lignende "
+             "konstruksjoner der betongen stopes direkte mot grunnen."),
+            ("Hvorfor legges det til 7,2 %?",
+             "LM-jern er lange staver som i de fleste tilfeller overskrider 12 m og "
+             "dermed maa skjotes. I tillegg kommer bøyetillegg i endene. "
+             "Erfaringstallet 7,2 % dekker det samlede tillegget for bøying og "
+             "skjotetillegg som ikke er eksplisitt modellert i BIM. "
+             "Faktoren er fastsatt av prosjektet og brukes konsekvent pa all "
+             "LM-armering uavhengig av diameter."),
+            ("Beregning",
+             "Armeringsvekt (kg) = BIM-vekt (kg) + LM-vekt (kg) * 0,072. "
+             "LM-vekten er summen av registrert vekt for alle jern i LM-klassifiserte "
+             "produksjonsenheter. BIM-vekten er summen av registrert vekt for alle "
+             "ovrige jern (ikke-LM). Tillegget er altsa KUN pa LM-delen."),
+            ("Paavirkning pa rapporten",
+             "Kolonnene 'LM-vekt (kg)' og 'Armeringsvekt (kg)' i Sammendrag-arket "
+             "viser hhv. ren LM-vekt (uten tillegg) og total armeringsvekt inkl. "
+             "7,2 %-tillegget. Differansen mellom disse to er dermed stoerre enn "
+             "det som er synlig i modellen alene."),
+        ]
+        for kn, fk in lm_tekst:
+            ws_fk.cell(row=r, column=2, value=kn).font  = Font(bold=True, name="Calibri", size=10)
+            c = ws_fk.cell(row=r, column=3, value=fk)
+            c.font      = Font(name="Calibri", size=10)
+            c.alignment = Alignment(wrap_text=True)
+            ws_fk.row_dimensions[r].height = 52
+            r += 1
+        r += 1
+
+        # Flytt Forklaring til forsiden (indeks 0)
+        try:
+            wb_obj.move_sheet("Forklaring", offset=-wb_obj.sheetnames.index("Forklaring"))
+        except Exception:
+            pass
+        # Flytt Dokumentasjon til slutten
+        try:
+            n = len(wb_obj.sheetnames)
+            wb_obj.move_sheet("Dokumentasjon", offset=n - wb_obj.sheetnames.index("Dokumentasjon") - 1)
+        except Exception:
+            pass
+
+    # ================================================================
+    # Skriv Excel-filer (med retry ved PermissionError)
+    #   Hovedfil  : Forklaring, Sammendrag, Manglende_Mengder, Dokumentasjon
+    #   Armeringsfil: LM_Oversikt, LM_Omfar, LM_PE_Svinn, Armering_Detaljer
+    # ================================================================
+    omega_basename = os.path.basename(excel_file_OMEGA).replace('.xlsx', '').replace('.xls', '')
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file_third = rf"C:\Users\ifi\Documents\ssa\ifi\resultat_mengdeuttak_{omega_basename}_{timestamp}.xlsx"
+    output_file_arm   = rf"C:\Users\ifi\Documents\ssa\ifi\resultat_mengdeuttak_{omega_basename}_{timestamp}_LM.xlsx"
+
+    _FILL_DOK_SEK  = PatternFill("solid", fgColor="1F497D")
+    _FONT_DOK_SEK  = Font(bold=True, color="FFFFFF", name="Calibri", size=10)
+    _FONT_DOK_DATA = Font(name="Calibri", size=10)
+    _FONT_DOK_MONO = Font(name="Consolas", size=9)
+
+    for _forsok in range(1, 12):
+        if _forsok > 1:
+            output_file_third = (
+                rf"C:\Users\ifi\Documents\ssa\ifi\resultat_mengdeuttak_{omega_basename}_{timestamp}_{_forsok}.xlsx"
+            )
+            output_file_arm = (
+                rf"C:\Users\ifi\Documents\ssa\ifi\resultat_mengdeuttak_{omega_basename}_{timestamp}_{_forsok}_LM.xlsx"
+            )
+        try:
+            from lagring import vent_til_skrivbar
+            # ── Hovedfil ────────────────────────────────────────────────────
+            vent_til_skrivbar(output_file_third)
+            with pd.ExcelWriter(output_file_third, engine="openpyxl") as writer:
+                df_samm_xl.to_excel(writer, sheet_name="Sammendrag", index=False, startrow=1)
+                if not df_mangl_xl.empty:
+                    df_mangl_xl.to_excel(writer, sheet_name="Manglende_Mengder", index=False)
+
+                # Dokumentasjons-ark
+                wb = writer.book
+                ws_doc = wb.create_sheet("Dokumentasjon")
+                rn = [1]
+
+                def _doc_sek(tittel):
+                    c = ws_doc.cell(row=rn[0], column=1, value=tittel)
+                    c.font = _FONT_DOK_SEK
+                    c.fill = _FILL_DOK_SEK
+                    ws_doc.row_dimensions[rn[0]].height = 16
+                    rn[0] += 1
+
+                def _doc_rad(tekst, kol=1, bold=False, mono=False):
+                    if not tekst:
+                        rn[0] += 1
+                        return
+                    c = ws_doc.cell(row=rn[0], column=kol, value=tekst)
+                    if mono:
+                        c.font = _FONT_DOK_MONO
+                    elif bold:
+                        c.font = Font(bold=True, name="Calibri", size=10)
+                    else:
+                        c.font = _FONT_DOK_DATA
+                    rn[0] += 1
+
+                tapt_vekt   = total_vekt_raw - output_vekt
+                pst_beholdt = (output_vekt / total_vekt_raw * 100) if total_vekt_raw > 0 else 0
+                pst_tapt    = (tapt_vekt   / total_vekt_raw * 100) if total_vekt_raw > 0 else 0
+
+                _doc_sek("VALIDERING: RAW ARMERINGSMODELL vs PROSESSERT DATA")
+                _doc_rad(f"Raw input   – total vekt: {total_vekt_raw:.2f} kg   |   antall jern: {total_antall_jern}")
+                _doc_rad(f"Uten mengdelistepost: {jern_uten_mengde} jern  ({vekt_uten_mengde:.2f} kg)")
+                rn[0] += 1
+                _doc_rad(f"Prosessert  – total vekt i rapport: {output_vekt:.2f} kg")
+                _doc_rad(f"Differanse  – tapt: {tapt_vekt:.2f} kg ({pst_tapt:.1f}%)   beholdt: {output_vekt:.2f} kg ({pst_beholdt:.1f}%)")
+                rn[0] += 1
+                if pst_tapt > 5:
+                    _doc_rad(f"[WARNING] Mer enn 5% av armeringsvekten er tapt i prosesseringen!", bold=True)
+                elif pst_tapt > 1:
+                    _doc_rad(f"[INFO] {pst_tapt:.1f}% av armeringsvekten er tapt i prosesseringen")
+                else:
+                    _doc_rad(f"[OK] Minimal tap ({pst_tapt:.1f}%)")
+
+                if not pe_uten_mengde_rapport.empty:
+                    rn[0] += 1
+                    _doc_sek("PRODUKSJONSENHETER MED ARMERING UTEN MENGDELISTEPOST (topp 15)")
+                    ws_doc.cell(row=rn[0], column=1, value="Produksjonsenhet").font = Font(bold=True, name="Calibri", size=10)
+                    ws_doc.cell(row=rn[0], column=2, value="Vekt (kg)").font        = Font(bold=True, name="Calibri", size=10)
+                    rn[0] += 1
+                    for _, pe_row in pe_uten_mengde_rapport.head(15).iterrows():
+                        ws_doc.cell(row=rn[0], column=1, value=pe_row["Produksjonsenhet"]).font = _FONT_DOK_DATA
+                        ws_doc.cell(row=rn[0], column=2, value=round(pe_row["Vekt_kg"], 2)).font = _FONT_DOK_DATA
+                        rn[0] += 1
+                    if len(pe_uten_mengde_rapport) > 15:
+                        _doc_rad(f"... og {len(pe_uten_mengde_rapport) - 15} til")
+
+                # report_lines: skriv seksjonsoverskrifter og datarader skilt
+                _sek_tekst = None
+                for line in report_lines:
+                    s = str(line).lstrip("\n").rstrip()
+                    if not s or set(s) == {"="}:
+                        continue
+                    if s.isupper() and not s.startswith(" ") and not s.startswith("["):
+                        rn[0] += 1
+                        _doc_sek(s)
+                        _sek_tekst = s
+                    else:
+                        _doc_rad(s)
+
+                if vekt_flytting_log:
+                    rn[0] += 1
+                    _doc_sek("DETALJER: PRODUKSJONSENHETER MED FLERE MENGDELISTEPOSTER")
+                    df_vf = pd.DataFrame(vekt_flytting_log)
+                    for ci, cn in enumerate(df_vf.columns, 1):
+                        ws_doc.cell(row=rn[0], column=ci, value=cn).font = Font(bold=True, name="Calibri", size=10)
+                    rn[0] += 1
+                    for _, vrow in df_vf.iterrows():
+                        for ci, val in enumerate(vrow, 1):
+                            ws_doc.cell(row=rn[0], column=ci, value=val).font = _FONT_DOK_DATA
+                        rn[0] += 1
+
+                ws_doc.column_dimensions["A"].width = 70
+                ws_doc.column_dimensions["B"].width = 20
+
+                _formater_wb(wb, timestamp)
+
+            # ── Armeringsfil ─────────────────────────────────────────────────
+            _har_arm_ark = any([
+                not df_arm_xl.empty,
+                not df_lm_xl.empty,
+                not df_omfar_xl.empty,
+                not df_pe_svinn_xl.empty,
+            ])
+            if _har_arm_ark:
+                vent_til_skrivbar(output_file_arm)
+                with pd.ExcelWriter(output_file_arm, engine="openpyxl") as writer_arm:
+                    if not df_arm_xl.empty:
+                        df_arm_xl.to_excel(writer_arm, sheet_name="Armering_Detaljer", index=False)
+                    if not df_lm_xl.empty:
+                        df_lm_xl.to_excel(writer_arm, sheet_name="LM_Oversikt", index=False)
+                    if not df_omfar_xl.empty:
+                        df_omfar_xl.to_excel(writer_arm, sheet_name="LM_Omfar", index=False)
+                    if not df_pe_svinn_xl.empty:
+                        df_pe_svinn_xl.to_excel(writer_arm, sheet_name="LM_PE_Svinn", index=False)
+                    _formater_wb(writer_arm.book, timestamp)
+                print(f"[SUCCESS] Armeringsfil eksportert: {output_file_arm}")
+            else:
+                output_file_arm = None
+
+            # Eksporter stien til armeringsfil slik at csv_til_armrib kan legge til S4
+            output_file_arm_path = output_file_arm
+
+            print(f"\n[SUCCESS] Fil eksportert: {output_file_third}")
+            break
+        except PermissionError:
+            if _forsok >= 11:
+                raise
+            print(f"[WARNING] Fil er lest av annen prosess - proever med nytt filnavn (forsok {_forsok + 1})")

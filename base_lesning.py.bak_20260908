@@ -1,0 +1,461 @@
+# -*- coding: utf-8 -*-
+"""
+Basisfunksjoner for lesning og normalisering av:
+  - Omega Excel  (BOQNT-ark med prosesskoder og mengder)
+  - selection-basket CSV  (kombinert ARM + RIB fra Scan Survey)
+
+Disse funksjonene er selvstendige og kan importeres i alle nye analyser.
+csv_til_armrib.py og Mengdeuttak_fra_CSV.py bygger på den samme logikken,
+men her er alt samlet, ryddig dokumentert og lett å gjenbruke.
+
+Eksempel:
+    from base_lesning import les_omega, bygg_omega_koder, les_og_split_csv
+
+    df_om          = les_omega(OMEGA_PATH)
+    koder, prefiks = bygg_omega_koder(df_om)
+
+    df_arm, df_rib = les_og_split_csv(CSV_PATH, fob_status="S5")
+"""
+
+from __future__ import annotations
+
+import os
+import warnings
+import pandas as pd
+
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+
+
+# ============================================================
+# Konstantar
+# ============================================================
+
+# IFC-filer som skal brukes har dette i Path-kolonnen.
+# Format: U_F_STA_VEK_RIB_XXX_K7-LP05.ifc
+LP_TOKEN = "K7-LP"
+
+# Path-substrings som skiller ARM-modell fra RIB-modell
+ARM_TOKEN = "_RIB_ARM_"
+RIB_TOKEN = "_RIB_"
+
+# Omega-ark og radstart
+OMEGA_SHEET   = "BOQNT"
+OMEGA_SKIPROWS = 2
+
+# Kolonne i Omega som inneheld prosesskodene
+OMEGA_KODE_KOL = "Navn (Prosesskode)"
+
+# Kolonnar som skal tolkast numerisk i CSV-en (etter /→. omdøping).
+# Format: {kolonnenavn: (suffikset som skal strippas, divisor)}
+# Divisor != 1 tyder at verdien i CSV er i ei anna eining enn det
+# Mengdeuttak_Armering.py ventar (td. mm→m for Stangdiameter).
+CSV_KOLUMNE_EININGAR: dict[str, tuple[str, float]] = {
+    "PGF_RIB_Info.Stangdiameter": ("mm", 1000.0),   # "25.00mm"  → 0.025 m
+    "PGF_RIB_Info.Lengde":        ("mm", 1.0),       # "7229.00mm"→ 7229 mm
+    "PGF_RIB_Info.Vekt":          ("kg", 1.0),       # "11.41kg"  → 11.41 kg
+    "PGF_Kalkyle.PGF_Volum":      ("m³", 1.0),       # "66.93m³"  → 66.93 m³
+    "PGF_Kalkyle.PGF_Areal":      ("m²", 1.0),
+    "PGF_Kalkyle.PGF_Lengde":     ("m",  1.0),
+}
+
+
+# ============================================================
+# OMEGA
+# ============================================================
+
+_OMEGA_CACHE: dict = {}
+
+
+def les_omega(omega_path: str) -> pd.DataFrame:
+    """Les Omega BOQNT-arket og normaliser kolonnenamn.
+
+    Støttar to Excel-format frå Omega:
+      - Mars-format:  kolonnar heiter 'Opprinnelig' og 'Rapportert'
+      - April-format: kolonnar heiter 'Kontraktsmengde' og
+                      'Rapportert mengde (Kumulativ)'
+
+    Returnerer ein DataFrame der desse alltid heiter:
+        'Kontraktsmengde'  og  'Rapportert mengde (Kumulativ)'
+    slik at resten av koden kan bruke eitt sett kolonnenamn uansett
+    kva format Omega-fila har.
+
+    Parameters
+    ----------
+    omega_path : str
+        Full path til Omega-Excel-fila.
+
+    Returns
+    -------
+    pd.DataFrame
+        Normalisert DataFrame med minst kolonnane:
+        'Navn (Prosesskode)', 'Kontraktsmengde',
+        'Rapportert mengde (Kumulativ)', 'Enhet'
+    """
+    if not os.path.exists(omega_path):
+        raise FileNotFoundError(f"Omega-fil finnes ikke: {omega_path}")
+
+    # Cache: (path, mtime) — invalideres om fila endrast
+    cache_key = (omega_path, os.path.getmtime(omega_path))
+    if cache_key in _OMEGA_CACHE:
+        return _OMEGA_CACHE[cache_key].copy()
+
+    df = pd.read_excel(
+        omega_path,
+        sheet_name=OMEGA_SHEET,
+        engine="openpyxl",
+        skiprows=OMEGA_SKIPROWS,
+    )
+
+    # Normaliser kolonnenamn: Mars-format → April-format
+    rename_map: dict[str, str] = {}
+    if "Opprinnelig" in df.columns and "Kontraktsmengde" not in df.columns:
+        rename_map["Opprinnelig"] = "Kontraktsmengde"
+    if "Rapportert" in df.columns and "Rapportert mengde (Kumulativ)" not in df.columns:
+        rename_map["Rapportert"] = "Rapportert mengde (Kumulativ)"
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    # Rens prosesskode-kolonnen
+    if OMEGA_KODE_KOL in df.columns:
+        df[OMEGA_KODE_KOL] = df[OMEGA_KODE_KOL].astype(str).str.strip()
+        df = df[df[OMEGA_KODE_KOL].notna() & (df[OMEGA_KODE_KOL] != "nan")].copy()
+
+    _OMEGA_CACHE[cache_key] = df
+    return df.copy()
+
+
+def bygg_omega_koder(df_omega: pd.DataFrame) -> tuple[set[str], set[str]]:
+    """Bygg kode-sett for hierarkisk matching mot Omega.
+
+    For koden "84.211.11" vert desse prefiks lagt til:
+        "84.", "84.211."
+    slik at ein mengdelistepost "84.211" (overordna kode) kan matchast
+    mot ein Omega-post som er "84.211.11".
+
+    Parameters
+    ----------
+    df_omega : pd.DataFrame
+        DataFrame returnert frå :func:`les_omega`.
+
+    Returns
+    -------
+    (omega_codes, omega_prefixes) : tuple[set[str], set[str]]
+        omega_codes    : eksakte kodar frå Omega
+        omega_prefixes : alle prefix-variantar (med avsluttande punktum)
+    """
+    omega_codes: set[str] = set(
+        df_omega[OMEGA_KODE_KOL].astype(str).str.strip().unique()
+    )
+    omega_prefixes: set[str] = set()
+    for code in omega_codes:
+        parts = code.split(".")
+        for i in range(1, len(parts)):
+            omega_prefixes.add(".".join(parts[:i]) + ".")
+    return omega_codes, omega_prefixes
+
+
+def finnes_i_omega(
+    post: str,
+    omega_codes: set[str],
+    omega_prefixes: set[str],
+) -> bool:
+    """Sjekk om ein mengdelistepost er dekka av Omega (eksakt eller hierarkisk).
+
+    Ein post er "dekka" viss:
+      - han er ein eksakt kode i Omega, ELLER
+      - han er eit prefiks til ein eksakt kode (td. "84.211" dekkar "84.211.11")
+
+    Parameters
+    ----------
+    post : str
+        Mengdelistepost å sjekke (td. "84.211.11" eller "84.211").
+    omega_codes : set[str]
+        Eksakte Omega-kodar (frå :func:`bygg_omega_koder`).
+    omega_prefixes : set[str]
+        Prefix-sett (frå :func:`bygg_omega_koder`).
+
+    Returns
+    -------
+    bool
+    """
+    if post in omega_codes:
+        return True
+    return (post + ".") in omega_prefixes
+
+
+def omega_oppslag(
+    mengdelistepost: str,
+    df_omega: pd.DataFrame,
+) -> dict[str, object]:
+    """Returner Omega-data for ein mengdelistepost (første treff).
+
+    Støttar semicolon-separerte postar ("84.211.11;84.211.12").
+
+    Parameters
+    ----------
+    mengdelistepost : str
+        Éin eller fleire mengdelistepostar separert med ";".
+    df_omega : pd.DataFrame
+        Normalisert Omega-DataFrame frå :func:`les_omega`.
+
+    Returns
+    -------
+    dict med nøklane:
+        'kode'            : str   — funnen Omega-kode (None om ikkje funne)
+        'Kontraktsmengde' : float
+        'Rapportert mengde (Kumulativ)' : float
+        'Enhet'           : str
+    """
+    tomt: dict[str, object] = {
+        "kode": None,
+        "Kontraktsmengde": None,
+        "Rapportert mengde (Kumulativ)": None,
+        "Enhet": None,
+    }
+    if pd.isna(mengdelistepost):
+        return tomt
+
+    omega_idx = (
+        df_omega
+        .assign(_kode=df_omega[OMEGA_KODE_KOL].astype(str).str.strip())
+        .drop_duplicates("_kode")
+        .set_index("_kode")
+    )
+
+    for del_post in str(mengdelistepost).split(";"):
+        p = del_post.strip()
+        if p and p in omega_idx.index:
+            rad = omega_idx.loc[p]
+            return {
+                "kode":            p,
+                "Kontraktsmengde": rad.get("Kontraktsmengde"),
+                "Rapportert mengde (Kumulativ)": rad.get("Rapportert mengde (Kumulativ)"),
+                "Enhet":           rad.get("Enhet"),
+            }
+    return tomt
+
+
+# ============================================================
+# CSV  (selection-basket)
+# ============================================================
+
+def _strip_eining(serie: pd.Series, suffiks: str, divisor: float) -> pd.Series:
+    """Strip enhets-suffiks frå ein streng-serie og konverter til float.
+
+    Handterer to CSV-eksportformat:
+      - Gamalt: '25.00mm' → strip 'mm' → 25.0 → ÷1000 → 0.025 m
+      - Nytt:   '0.016m'  → strip 'm'  → 0.016 → ÷1    → 0.016 m
+    Detekterer automatisk kva format kolonnen brukar.
+    """
+    if serie.dtype.kind in "fi":
+        return serie.astype(float)
+    s = serie.astype(str).str.strip().replace({"nan": "", "None": "", "NaN": ""})
+
+    # Auto-detekter: viss verdiane har bare 'm'-suffiks (ikkje 'mm') og divisor
+    # er meint å konvertere mm→m, ligg verdiane allereie i meter — ikkje divider.
+    eff_divisor = divisor
+    if divisor != 1.0:
+        har_mm = s.str.lower().str.endswith("mm").sum()
+        har_bare_m = (
+            s.str.lower().str.endswith("m")
+            & ~s.str.lower().str.endswith("mm")
+            & ~s.str.lower().str.endswith("m³")
+            & ~s.str.lower().str.endswith("m²")
+            & ~s.str.lower().str.endswith("m3")
+            & ~s.str.lower().str.endswith("m2")
+        ).sum()
+        if har_bare_m > har_mm:
+            eff_divisor = 1.0
+
+    s = (
+        s.str.replace("m³", "", regex=False)
+         .str.replace("m²", "", regex=False)
+         .str.replace("m3", "", regex=False, case=False)
+         .str.replace("m2", "", regex=False, case=False)
+         .str.replace("mm", "", regex=False, case=False)
+         .str.replace("kg", "", regex=False, case=False)
+         .str.replace(r"(?i)m$", "", regex=True)   # bare 'm' att etter mm er stripp
+         .str.strip()
+    )
+    out = pd.to_numeric(s, errors="coerce")
+    return out / eff_divisor if eff_divisor != 1.0 else out
+
+
+def _normaliser_csv_kolonner(df: pd.DataFrame) -> pd.DataFrame:
+    """Normaliser kolonnenamn og parse einingssuffiks.
+
+    Endringar:
+      - "/" → "." i alle kolonnenamn
+      - "ObjectType" → "Type"  (om "Type" ikkje allereie finst)
+      - Einings-suffiks i numeriske kolonnar strippast og konverterast
+    """
+    df = df.copy()
+    df.columns = [c.replace("/", ".") for c in df.columns]
+    if "ObjectType" in df.columns and "Type" not in df.columns:
+        df = df.rename(columns={"ObjectType": "Type"})
+    for kol, (suffiks, divisor) in CSV_KOLUMNE_EININGAR.items():
+        if kol in df.columns:
+            df[kol] = _strip_eining(df[kol], suffiks, divisor)
+    return df
+
+
+def les_csv(
+    csv_path: str,
+    *,
+    lp_only: bool = True,
+    lp_token: str = LP_TOKEN,
+) -> pd.DataFrame:
+    """Les og normaliser ein selection-basket CSV-fil.
+
+    Parameters
+    ----------
+    csv_path : str
+        Full path til CSV-fila.
+    lp_only : bool
+        Filtrer til berre rader der Path inneheld `lp_token`.
+        Default True (ekskluderer Prefab, Kranbjelke osv.).
+    lp_token : str
+        Path-filter token. Default "K7-LP".
+
+    Returns
+    -------
+    pd.DataFrame
+        Normalisert DataFrame klar for vidare analyse.
+        Kolonnenamn brukar "." som separator, "Type" er alltid brukt
+        (ikkje "ObjectType"), og numeriske kolonnar er float.
+    """
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"CSV-fil finnes ikke: {csv_path}")
+
+    print(f"[INFO] Leser CSV: {csv_path}")
+    df = pd.read_csv(csv_path, low_memory=False)
+    print(f"[INFO] CSV lest: {len(df):,} rader, {len(df.columns)} kolonner")
+
+    if "Path" not in df.columns:
+        raise KeyError("CSV-en manglar 'Path'-kolonne — kan ikkje filtrere eller splitte.")
+
+    if lp_only:
+        n_før = len(df)
+        df = df[
+            df["Path"].astype(str).str.contains(lp_token, regex=False, na=False)
+        ].copy()
+        print(f"[INFO] LP-filter ('{lp_token}'): {n_før:,} → {len(df):,} rader")
+
+    return _normaliser_csv_kolonner(df)
+
+
+def split_arm_rib(
+    df: pd.DataFrame,
+    *,
+    fob_status: str | list[str] | None = None,
+    arm_token: str = ARM_TOKEN,
+    rib_token: str = RIB_TOKEN,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Splitt ein normalisert CSV-DataFrame i ARM og RIB.
+
+    Splittinga er basert på Path-kolonnen:
+      - ARM : Path inneheld `arm_token` (t.d. "_RIB_ARM_")
+      - RIB : Path inneheld `rib_token` MEN IKKJE `arm_token`
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Normalisert DataFrame frå :func:`les_csv`.
+    fob_status : str | list[str] | None
+        Filtrer til oppgjevne FOB_Status-verdiar (t.d. "S5" eller ["S5","S4"]).
+        None = ingen filter.
+    arm_token : str
+        Path-substring for ARM-modellar. Default "_RIB_ARM_".
+    rib_token : str
+        Path-substring for RIB-modellar. Default "_RIB_".
+
+    Returns
+    -------
+    (df_armering, df_rib) : tuple[pd.DataFrame, pd.DataFrame]
+    """
+    if fob_status is not None:
+        statuses = [fob_status] if isinstance(fob_status, str) else list(fob_status)
+        fob_kol = "FOB_Info.FOB_Status"
+        if fob_kol not in df.columns:
+            raise KeyError(f"DataFrame manglar kolonne '{fob_kol}'.")
+        n_før = len(df)
+        df = df[df[fob_kol].isin(statuses)].copy()
+        print(f"[INFO] FOB_Status-filter {statuses}: {n_før:,} → {len(df):,} rader")
+
+    path = df["Path"].astype(str)
+    arm_mask = path.str.contains(arm_token, regex=False, na=False)
+    rib_mask = path.str.contains(rib_token, regex=False, na=False) & ~arm_mask
+
+    df_arm = df[arm_mask].copy()
+    df_rib = df[rib_mask].copy()
+    print(f"[INFO] ARM: {len(df_arm):,} rader  |  RIB: {len(df_rib):,} rader")
+    return df_arm, df_rib
+
+
+def les_og_split_csv(
+    csv_path: str,
+    *,
+    lp_only: bool = True,
+    lp_token: str = LP_TOKEN,
+    fob_status: str | list[str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Les CSV og splitt i ARM/RIB i eitt kall.
+
+    Bekvemmelighetsfunksjon som kombinerer :func:`les_csv` og
+    :func:`split_arm_rib`.
+
+    Parameters
+    ----------
+    csv_path  : str
+    lp_only   : bool   — LP-filter (sjå :func:`les_csv`)
+    lp_token  : str    — Path-token for LP-filter
+    fob_status: str | list[str] | None — FOB_Status-filter
+
+    Returns
+    -------
+    (df_armering, df_rib) : tuple[pd.DataFrame, pd.DataFrame]
+    """
+    return split_arm_rib(
+        les_csv(csv_path, lp_only=lp_only, lp_token=lp_token),
+        fob_status=fob_status,
+    )
+
+
+# ============================================================
+# Køyr som standalone-skript for rask test
+# ============================================================
+
+if __name__ == "__main__":
+    CSV_PATH   = r"C:\Users\ifi\Downloads\selection-basket (30).csv"
+    OMEGA_PATH = (
+        r"C:\Users\ifi\Scan Survey\6900 - Fornebubanen"
+        r"\6900-01-010 K7 - Lysaker og Vækerø Stasjon"
+        r"\APM FOB Gjennomgang\Omega_K7_April.xlsx"
+    )
+
+    print("=" * 60)
+    print("TEST: Omega")
+    print("=" * 60)
+    df_om = les_omega(OMEGA_PATH)
+    print(f"  Rader: {len(df_om):,}")
+    print(f"  Kolonner: {list(df_om.columns[:8])}")
+    koder, prefiks = bygg_omega_koder(df_om)
+    print(f"  Unike kodar: {len(koder):,}  Prefiks: {len(prefiks):,}")
+
+    test_postar = ["84.211.11", "84.211", "xx.yyy"]
+    for p in test_postar:
+        print(f"  finnes_i_omega('{p}'): {finnes_i_omega(p, koder, prefiks)}")
+
+    print()
+    print("=" * 60)
+    print("TEST: CSV")
+    print("=" * 60)
+    df_arm, df_rib = les_og_split_csv(CSV_PATH, fob_status="S5")
+    print(f"  ARM-kolonnar: {len(df_arm.columns):,}")
+    print(f"  RIB-kolonnar: {len(df_rib.columns):,}")
+    if "PGF_RIB_Info.Vekt" in df_arm.columns:
+        total_vekt = df_arm["PGF_RIB_Info.Vekt"].fillna(0).astype(float).sum()
+        print(f"  Total armeringsvekt (S5): {total_vekt:,.2f} kg")
+    if "PGF_Kalkyle.PGF_Volum" in df_rib.columns:
+        total_vol = df_rib["PGF_Kalkyle.PGF_Volum"].fillna(0).astype(float).sum()
+        print(f"  Total volum (S5): {total_vol:,.3f} m³")

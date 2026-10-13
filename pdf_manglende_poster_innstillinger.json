@@ -1,0 +1,15 @@
+{
+  "pdf": "C:/Users/ifi/Downloads/20260907 Avvik poster modell vs kontrakt-PF-EO.pdf",
+  "csv": [
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Prognose beregning/September 2026/LYA-09- Samordning MEK - RIE .csv",
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Prognose beregning/September 2026/LYA-09-ARK-GRUNNUtomhus.csv",
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Prognose beregning/September 2026/LYA-09-RIB_RIBARM.csv",
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Prognose beregning/September 2026/VEK-ARK-RIB-Utomhus-Grunn.csv",
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Prognose beregning/September 2026/VEK-RIE-MEK-sep2026-samordning.csv"
+  ],
+  "kontrakt": [
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Beskrivelse samlet/K7 NS3420 Komplett utskrift_18082026.xlsx",
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Beskrivelse samlet/K7 Prosess Komplett utskrift_18082026.xlsx"
+  ],
+  "debug": false
+}

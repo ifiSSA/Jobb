@@ -1,0 +1,939 @@
+# -*- coding: utf-8 -*-
+"""
+Bibliotek for å kjøre Mengdeuttak_Armering.py mot en kombinert
+selection-basket CSV (ARM + RIB i samme fil).
+
+Bruk:
+    from csv_til_armrib import kjor_mengdeuttak
+
+    kjor_mengdeuttak(
+        csv_path   = r"C:\\...\\selection-basket (30).csv",
+        omega_path = r"C:\\...\\Omega_K7_April.xlsx",
+    )
+
+Filtre:
+    - LP-filter: kun IFC-filer med '-LP' i path (t.d. K7-LP / K10-LP),
+      ekskluderer Prefab, Kranbjelke, og andre filer som mangler
+      mengdelistepost-oppsett.
+    - FOB_Status: hovedrapport bruker S5 (verifisert).
+      Elementer med S4 legges på et eget ark (mindre verifiserte data).
+
+Path-splittelse:
+    - ARM-modell  = Path inneholder '_RIB_ARM_'   (rebar-IFC-er)
+    - RIB-modell  = Path inneholder '_RIB_'  uten '_RIB_ARM_'
+
+Kolonnenavn omdøpes fra '/' til '.' og 'ObjectType' til 'Type' så
+Mengdeuttak_Armering.py kan brukes uendret. pd.read_excel monkey-patches
+slik at vi unngår å skrive temp-Excel-filer.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import pandas as pd
+import warnings
+from typing import Iterable
+
+warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
+
+# Standardplassering for det eksisterende skriptet med all Omega-logikk.
+DEFAULT_ARMERING_SCRIPT = r"C:\Users\ifi\Documents\ssa\ifi\Mengdeuttak_Armering.py"
+
+# Path-substrings som identifiserer ARM- vs RIB-IFC-filer.
+ARM_PATH_TOKEN = "_RIB_ARM_"
+RIB_PATH_TOKEN = "_RIB_"
+
+# IFC-filer vi vil bruke har '-LP' i navnet (LP-stasjonene), t.d.
+# 'K7-LP...' (Lysaker/Vækerø) eller 'K10-LP...' (Skøyen/Madserud/Bestum).
+# Tokenet er bevisst prosjekt-uavhengig ('-LP') slik at same verktøy
+# fungerer for fleire entrepriser. Filer som Prefab-betong / Kranbjelke /
+# reine referanseobjekt (utan '-LP') matches ikke og ekskluderes.
+LP_FILTER_TOKEN = "-LP"
+
+# FOB_Status: hva regnes som verifisert vs mindre verifisert.
+HOVED_STATUS  = "S5"
+EKSTRA_STATUS = "S4"
+
+# ── Material-konsistenskontroll ────────────────────────────────────────────
+# For kvar mengdelistepost finn vi materialet flest element deler (dominerande
+# material). Element med eit ANNA kjent material vert rekna som feilprosjektert
+# og halde UTE frå mengda. Døme: 42 Steinull-element booka til ein stål-post
+# (S355) der dei fleste er stål → Steinull-elementa droppast.
+_MAT_FASTHET_COL = "PGF_RIB_Info.Materialfasthet"   # reinaste: B35/B45/S355/B500NC/Steinull
+_MAT_COL         = "Material"                        # fallback: "Betong Plasstøpt - B35"
+_MENG_KOL        = "FOB_Info.FOB_Mengdelistepost"
+_FAGKAP_KOL      = "PGF_Info.PGF_Fagkapittel"
+_TOMME_MAT       = {"", "nan", "none", "default", "default surface"}
+
+# Akkumulert rapport over material-avvik.
+# Nøkkel: (fagkapittel, post, dominant_material, feil_material)
+#   -> {"antall": int, "usikker": bool}
+# Idempotent: same data gir same nøklar/verdiar (assign, ikkje increment),
+# så fleire les_csv-kall i same køyring duplikerer ikkje.
+#
+# usikker=True  → avviket gjeld to konstruksjonsmateriale (t.d. 8.8-boltar
+#                 vs S355-stål). Då BEHELD vi mengda, men flaggar for sjekk.
+# usikker=False → framand materiale (isolasjon/gummi/fuge) i konstruksjonspost.
+#                 Då EKSKLUDERER vi mengda.
+MATERIAL_AVVIK: dict = {}
+
+import re as _re
+# Konstruksjonsmateriale: betong (B35/B45/B500NC), stål (S355), boltgrad (8.8/10.9),
+# rustfritt (A2/A4/316L/1.4401). Alt anna (Steinull, Rubber, Fuge …) er "framand".
+_STRUKTUR_RE = _re.compile(
+    r'^(B\d{2,3}|B500NC|S\d{3}|A[24]|\d{1,2}\.\d|\d{3}L|1\.\d{3,4})$',
+    _re.IGNORECASE,
+)
+
+
+def _er_strukturmateriale(m: str) -> bool:
+    return bool(_STRUKTUR_RE.match(str(m).strip()))
+
+
+def nullstill_material_avvik() -> None:
+    """Tøm avviksloggen ved start av ei ny køyring."""
+    MATERIAL_AVVIK.clear()
+
+
+def _material_serie(df: pd.DataFrame) -> pd.Series:
+    """Materialkvalitet per rad: Materialfasthet, fallback Material."""
+    if _MAT_FASTHET_COL in df.columns:
+        m = df[_MAT_FASTHET_COL].astype(str).str.strip()
+        if _MAT_COL in df.columns:
+            fb = df[_MAT_COL].astype(str).str.strip()
+            m = m.where(~m.str.lower().isin(_TOMME_MAT), fb)
+        return m
+    if _MAT_COL in df.columns:
+        return df[_MAT_COL].astype(str).str.strip()
+    return pd.Series([""] * len(df), index=df.index)
+
+
+def filtrer_dominant_material(df: pd.DataFrame) -> pd.DataFrame:
+    """Behald berre rader med dominerande material per mengdelistepost.
+
+    Vektorisert. Rader med ukjent/tomt material eller utan post vert behaldne
+    (me straffar ikkje manglande data). Avvik vert logga i MATERIAL_AVVIK.
+    """
+    if df.empty or _MENG_KOL not in df.columns:
+        return df
+
+    mat  = _material_serie(df).reset_index(drop=True)
+    post = df[_MENG_KOL].astype(str).str.split(";").str[0].str.strip().reset_index(drop=True)
+    tom  = mat.str.lower().isin(_TOMME_MAT) | post.isin(["", "nan"])
+
+    work = pd.DataFrame({"post": post, "mat": mat, "tom": tom})
+    gyldige = work.loc[~work["tom"], ["post", "mat"]]
+    if gyldige.empty:
+        return df
+
+    dom = gyldige.groupby("post")["mat"].agg(lambda s: s.value_counts().idxmax())
+    work["dom"] = work["post"].map(dom)
+    feil = (~work["tom"]) & work["dom"].notna() & (work["mat"] != work["dom"])
+
+    # Usikkert = det ekskluderte materialet er sjølv eit konstruksjonsmateriale
+    # (då beheld vi det, men flaggar). Sikkert = framand materiale → ekskluder.
+    usikker = work["mat"].map(_er_strukturmateriale)
+    dropp   = feil & ~usikker          # berre sikre avvik vert faktisk fjerna
+
+    if feil.any():
+        if _FAGKAP_KOL in df.columns:
+            work["fag"] = df[_FAGKAP_KOL].astype(str).values
+        else:
+            work["fag"] = ""
+        work["_us"] = usikker
+        grp = work.loc[feil].groupby(["fag", "post", "dom", "mat", "_us"]).size()
+        for (fag, po, d, m, us), n in grp.items():
+            MATERIAL_AVVIK[(fag, po, d, m)] = {"antall": int(n), "usikker": bool(us)}
+        n_dropp = int(dropp.sum())
+        n_flag  = int((feil & usikker).sum())
+        print(f"[MATERIAL] Ekskluderte {n_dropp:,} element (framand materiale), "
+              f"flagga {n_flag:,} usikre (konstruksjonsmateriale beheldt)")
+
+    behald_idx = df.index[(~dropp).to_numpy()]
+    return df.loc[behald_idx].copy()
+
+# Kolonner som har enhets-suffiks i CSV-en og må parses til rene tall.
+# Mapping: kolonnenavn (etter '/' -> '.') -> (suffiks, divisor for å matche
+# enheten Mengdeuttak_Armering.py forventer).
+#
+# Mengdeuttak_Armering.py forventer:
+#   Stangdiameter i meter (multipliseres med 1000 for å få mm)
+#   Lengde       i mm eller m (smart deteksjon: >100 tolkes som mm)
+#   Vekt         i kg
+#   PGF_Volum    i m³
+_NUMERISK_PARSING = {
+    "PGF_RIB_Info.Stangdiameter": ("mm", 1000.0),  # "25.00mm" -> 0.025
+    "PGF_RIB_Info.Lengde":        ("mm", 1.0),     # "7229.00mm" -> 7229.0
+    "PGF_RIB_Info.Vekt":          ("kg", 1.0),     # "11.410kg" -> 11.410
+    "PGF_Kalkyle.PGF_Volum":      ("m³", 1.0),     # "66.934m³" -> 66.934
+    "PGF_Kalkyle.PGF_Areal":      ("m²", 1.0),
+    "PGF_Kalkyle.PGF_Lengde":     ("m", 1.0),
+}
+
+
+def _parse_med_suffiks(serie: pd.Series, suffiks: str, divisor: float) -> pd.Series:
+    """Strip kjent suffiks og konverter til float.
+
+    Handterer to CSV-eksportformat:
+      - Gamalt: '25.00mm' → strip 'mm' → 25.0 → ÷1000 → 0.025 m
+      - Nytt:   '0.016m'  → strip 'm'  → 0.016 → ÷1    → 0.016 m
+    Detekterer automatisk kva format kolonnen brukar.
+    """
+    if serie.dtype.kind in "fi":
+        return serie.astype(float)
+    s = serie.astype(str).str.strip()
+    s = s.replace({"nan": "", "None": "", "NaN": ""})
+
+    # Auto-detekter: viss verdiane har bare 'm'-suffiks (ikkje 'mm') og divisor
+    # er meint å konvertere mm→m, ligg verdiane allereie i meter — ikkje divider.
+    eff_divisor = divisor
+    if divisor != 1.0:
+        har_mm = s.str.lower().str.endswith("mm").sum()
+        har_bare_m = (
+            s.str.lower().str.endswith("m")
+            & ~s.str.lower().str.endswith("mm")
+            & ~s.str.lower().str.endswith("m³")
+            & ~s.str.lower().str.endswith("m²")
+            & ~s.str.lower().str.endswith("m3")
+            & ~s.str.lower().str.endswith("m2")
+        ).sum()
+        if har_bare_m > har_mm:
+            eff_divisor = 1.0
+
+    s = (s.str.replace("m³", "", regex=False)
+          .str.replace("m²", "", regex=False)
+          .str.replace("m3", "", regex=False, case=False)
+          .str.replace("m2", "", regex=False, case=False)
+          .str.replace("mm", "", regex=False, case=False)
+          .str.replace("kg", "", regex=False, case=False)
+          .str.replace(r"(?i)m$", "", regex=True)   # bare 'm' att etter mm er stripp
+          .str.strip())
+    out = pd.to_numeric(s, errors="coerce")
+    if eff_divisor != 1.0:
+        out = out / eff_divisor
+    return out
+
+
+def _normaliser_kolonner(df: pd.DataFrame) -> pd.DataFrame:
+    """Omdøp '/' -> '.' i kolonnenavn, ObjectType -> Type, og parse enhets-suffiks."""
+    df = df.copy()
+    df.columns = [c.replace("/", ".") for c in df.columns]
+    if "ObjectType" in df.columns and "Type" not in df.columns:
+        df = df.rename(columns={"ObjectType": "Type"})
+    for kol, (suffiks, divisor) in _NUMERISK_PARSING.items():
+        if kol in df.columns:
+            df[kol] = _parse_med_suffiks(df[kol], suffiks, divisor)
+    return df
+
+
+def les_csv(
+    csv_path: str | list[str],
+    *,
+    lp_only: bool = True,
+    material_kontroll: bool = True,
+) -> pd.DataFrame:
+    """Les éin eller fleire CSV-ar, normaliser kolonner, og evt filtrer til LP-IFC-filer.
+
+    csv_path kan vere ein enkelt sti (str) eller ei liste med stiar.
+    Fleire CSV-ar vert slåtte saman (pd.concat) før vidare handsaming.
+    material_kontroll: dropp element med avvikande material per mengdelistepost
+                       (dominerande material vinn). Avvik loggast i MATERIAL_AVVIK.
+    """
+    stiar = [csv_path] if isinstance(csv_path, str) else list(csv_path)
+    deler: list[pd.DataFrame] = []
+    for sti in stiar:
+        if not os.path.exists(sti):
+            raise FileNotFoundError(f"CSV-fil finnes ikke: {sti}")
+        print(f"[INFO] Leser CSV: {sti}")
+        deler.append(pd.read_csv(sti, low_memory=False))
+        print(f"[INFO] CSV lest: {len(deler[-1]):,} rader, {len(deler[-1].columns)} kolonnar")
+
+    df = pd.concat(deler, ignore_index=True) if len(deler) > 1 else deler[0]
+    if len(stiar) > 1:
+        print(f"[INFO] Totalt etter samanslåing: {len(df):,} rader")
+
+    if "Path" not in df.columns:
+        raise KeyError("CSV-en mangler 'Path'-kolonne — kan ikke filtrere/splitte.")
+
+    if lp_only:
+        n_for = len(df)
+        df = df[df["Path"].astype(str).str.contains(LP_FILTER_TOKEN, regex=False, na=False)].copy()
+        print(f"[INFO] LP-filter ('{LP_FILTER_TOKEN}'): {n_for:,} -> {len(df):,} rader")
+
+    df = _normaliser_kolonner(df)
+
+    # Material-konsistenskontroll: dropp element med avvikande material per post
+    if material_kontroll:
+        df = filtrer_dominant_material(df)
+
+    return df
+
+
+def split_arm_rib(
+    df: pd.DataFrame,
+    *,
+    fob_status: str | Iterable[str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Splitt en (allerede-normalisert) DataFrame i (df_armering, df_RIB).
+
+    fob_status: filtrer til oppgitte FOB_Info.FOB_Status-verdier
+                (str, liste, eller None for ingen filter).
+    """
+    if fob_status is not None:
+        statuses = [fob_status] if isinstance(fob_status, str) else list(fob_status)
+        n_for = len(df)
+        df = df[df["FOB_Info.FOB_Status"].isin(statuses)].copy()
+        print(f"[INFO] FOB_Status-filter ({statuses}): {n_for:,} -> {len(df):,} rader")
+
+    path = df["Path"].astype(str)
+    arm_mask = path.str.contains(ARM_PATH_TOKEN, regex=False, na=False)
+    rib_mask = path.str.contains(RIB_PATH_TOKEN, regex=False, na=False) & ~arm_mask
+
+    df_arm = df[arm_mask].copy()
+    df_rib = df[rib_mask].copy()
+    print(f"[INFO] ARM-rader: {len(df_arm):,}  RIB-rader: {len(df_rib):,}")
+    return df_arm, df_rib
+
+
+def les_og_split_csv(
+    csv_path: str,
+    *,
+    lp_only: bool = True,
+    fob_status: str | Iterable[str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Bekvemmelighetsfunksjon: les CSV + splitt i ARM/RIB i ett kall."""
+    return split_arm_rib(les_csv(csv_path, lp_only=lp_only), fob_status=fob_status)
+
+
+# ====================================================================
+# S4-promotering: S4-rader med mengdelistepost + Omega-match + ARM
+# skal med i hovedrapporten, ikke i S4-arket.
+# ====================================================================
+
+def _les_omega_koder(omega_path: str) -> tuple[set[str], set[str]]:
+    """Returner (omega_codes, omega_codes_with_prefix) – samme logikk som
+    Mengdeuttak_Armering.py bruker for hierarkisk match."""
+    df_om = pd.read_excel(omega_path, sheet_name="BOQNT", engine="openpyxl", skiprows=2)
+    omega_codes = set(df_om["Navn (Prosesskode)"].astype(str).str.strip().unique())
+    omega_codes_with_prefix: set[str] = set()
+    for code in omega_codes:
+        parts = code.split(".")
+        for i in range(1, len(parts)):
+            omega_codes_with_prefix.add(".".join(parts[:i]) + ".")
+    return omega_codes, omega_codes_with_prefix
+
+
+def _les_omega_betong_koder(omega_path: str) -> set[str]:
+    """Les betong-prosesskoder frå Omega BOQNT-ark.
+
+    Betong-postar: Tittel inneheld 'betong' (case-insensitiv) OG Enhet == 'm³'.
+    Brukt for å filtrere FOB_Mengde-ekspansjon slik at stål-/armeringspostar
+    ikkje vert handsama som betongrader (feil volum).
+    """
+    df_om = pd.read_excel(omega_path, sheet_name="BOQNT", engine="openpyxl", skiprows=2)
+    betong_mask = (
+        df_om["Tittel"].astype(str).str.contains("betong", case=False, na=False)
+        & (df_om["Enhet"].astype(str).str.strip().str.lower() == "m³")
+    )
+    koder = set(df_om.loc[betong_mask, "Navn (Prosesskode)"].astype(str).str.strip().unique())
+    return koder
+
+
+def _post_finnes_i_omega(post: str, omega_codes: set[str], omega_prefixes: set[str]) -> bool:
+    """Eksakt match eller prefix-match (samme som hovedflyten)."""
+    if post in omega_codes:
+        return True
+    return (post + ".") in omega_prefixes
+
+
+def _alle_pe_pa_rad(rad_pe_str) -> list[str]:
+    """Splitt komma-separert PE-streng -> liste av rensede, lowercased navn."""
+    if pd.isna(rad_pe_str):
+        return []
+    return [p.strip().lower() for p in str(rad_pe_str).split(",") if p.strip() and p.strip().lower() != "nan"]
+
+
+def finn_promoterte_s4_pe(
+    df_arm_s4: pd.DataFrame,
+    df_rib_s4: pd.DataFrame,
+    omega_codes: set[str],
+    omega_prefixes: set[str],
+) -> tuple[set[str], set]:
+    """Returner (pe_sett, ekstra_idx_sett) for S4-rader som skal promoterast.
+
+    Krav per RIB-rad:
+        1. Har FOB_Mengdelistepost
+        2. Fagkapittel er 05/06 og volum > 0  (samme krav som hovedrapport)
+        3. Minst én mengdelistepost matcher i Omega (eksakt eller via underpost)
+
+    ARM-paring er IKKJE eit krav lenger — alle kvalifiserte RIB-rader vert promoterte.
+    Rader UTAN PE-verdi vert returnert som rad-indeksar i `ekstra_idx_sett` slik at
+    dei òg kan inkluderast i hovudrapporten (PE-basert filter klarer ikkje desse).
+    """
+    if df_rib_s4.empty:
+        return set(), set()
+
+    rib = df_rib_s4
+    if FAGKAP_COL in rib.columns:
+        rib = rib[rib[FAGKAP_COL].isin(ALLOWED_FAGKAP)]
+    if VOL_COL in rib.columns:
+        rib = rib[rib[VOL_COL].notna() & (rib[VOL_COL] > 0)]
+    if MENG_COL not in rib.columns:
+        return set(), set()
+    rib = rib[rib[MENG_COL].notna()]
+    if TYPE_COL in rib.columns:
+        rib = rib[~rib[TYPE_COL].astype(str).str.contains("fuge", case=False, na=False)]
+    if rib.empty:
+        return set(), set()
+
+    har_pe_kol = PE_COL in rib.columns
+    pe_sett: set[str] = set()
+    ekstra_idx: set = set()
+
+    for idx, rad in rib.iterrows():
+        meng_str = str(rad[MENG_COL])
+        # Krev minst éin Omega-match
+        har_omega = False
+        for part in meng_str.split(";"):
+            p = part.strip()
+            if p and _post_finnes_i_omega(p, omega_codes, omega_prefixes):
+                har_omega = True
+                break
+        if not har_omega:
+            continue
+
+        # Promoter — uavhengig av om PE-en har tilhørande ARM
+        if har_pe_kol:
+            rad_pe = _alle_pe_pa_rad(rad[PE_COL])
+            if rad_pe:
+                pe_sett.update(rad_pe)
+            else:
+                ekstra_idx.add(idx)
+        else:
+            ekstra_idx.add(idx)
+
+    return pe_sett, ekstra_idx
+
+
+def _filtrer_pa_pe(df: pd.DataFrame, pe_sett: set[str], behold: bool) -> pd.DataFrame:
+    """Behold (eller drop) rader hvor minst én av komma-separerte PE-er er i pe_sett."""
+    if df.empty or not pe_sett:
+        return df.copy() if behold else df.copy()
+    pe_low = df[PE_COL].astype(str).str.lower()
+    # Match: minst én av ;-separerte PE-er er i sett
+    def rad_matcher(s):
+        for p in s.split(","):
+            if p.strip() in pe_sett:
+                return True
+        return False
+    mask = pe_low.apply(rad_matcher)
+    return df[mask].copy() if behold else df[~mask].copy()
+
+
+# ====================================================================
+# S4-sammendrag (mindre verifiserte elementer) – legges som ekstra ark
+# ====================================================================
+
+PE_COL     = "FOB_Info.FOB_Produksjonsenhet"
+MENG_COL   = "FOB_Info.FOB_Mengdelistepost"
+VEKT_COL   = "PGF_RIB_Info.Vekt"
+VOL_COL    = "PGF_Kalkyle.PGF_Volum"
+FAGKAP_COL = "PGF_Info.PGF_Fagkapittel"
+TYPE_COL   = "Type"
+
+ALLOWED_FAGKAP = {"05 Betongarbeider", "06 Betongkonstruksjoner, prefab"}
+
+
+def _eksploder_pe(df: pd.DataFrame) -> pd.DataFrame:
+    """Eksplodér komma-separert FOB_Produksjonsenhet til en rad per PE."""
+    if df.empty:
+        return df.copy()
+    df = df.copy()
+    df[PE_COL] = df[PE_COL].astype(str).fillna("").str.split(",")
+    df = df.explode(PE_COL)
+    df[PE_COL] = df[PE_COL].str.strip()
+    df = df[(df[PE_COL] != "") & (df[PE_COL].str.lower() != "nan")]
+    return df
+
+
+def bygg_status_sammendrag(
+    df_arm: pd.DataFrame,
+    df_rib: pd.DataFrame,
+    df_omega: pd.DataFrame | None,
+    *,
+    status_label: str = EKSTRA_STATUS,
+) -> pd.DataFrame:
+    """Enklere variant av Sammendrag-arket: per PE+Mengdelistepost.
+
+    Brukes for S4-elementer hvor 100% nøyaktighet ikke kreves.
+    """
+    # --- RIB: behold kun betong-fagkap og positivt volum ---
+    rib = df_rib.copy()
+    # Sikre at volum-kolonna finst (data utan PGF_Kalkyle, t.d. K10) slik at
+    # aggregeringa under ikkje feilar med KeyError.
+    if VOL_COL not in rib.columns:
+        rib[VOL_COL] = pd.NA
+    if FAGKAP_COL in rib.columns:
+        rib = rib[rib[FAGKAP_COL].isin(ALLOWED_FAGKAP)].copy()
+    if TYPE_COL in rib.columns:
+        rib = rib[~rib[TYPE_COL].astype(str).str.contains("fuge", case=False, na=False)].copy()
+    if VOL_COL in rib.columns:
+        rib = rib[rib[VOL_COL].notna() & (rib[VOL_COL] > 0)].copy()
+
+    rib = _eksploder_pe(rib)
+    arm = _eksploder_pe(df_arm)
+
+    # --- Aggreger ARM per PE ---
+    if not arm.empty and VEKT_COL in arm.columns:
+        arm_agg = (
+            arm.groupby(PE_COL)
+               .agg(Total_Vekt_kg=(VEKT_COL, lambda s: s.fillna(0).astype(float).sum()),
+                    Antall_jern=(VEKT_COL, "count"))
+               .reset_index()
+        )
+    else:
+        arm_agg = pd.DataFrame(columns=[PE_COL, "Total_Vekt_kg", "Antall_jern"])
+
+    # --- Aggreger RIB per (PE, Mengdelistepost) ---
+    if not rib.empty:
+        rib_agg = (
+            rib.groupby([PE_COL, MENG_COL], dropna=False)
+               .agg(Total_Volum_m3=(VOL_COL, "sum"),
+                    Antall_RIB_rader=(VOL_COL, "count"),
+                    Type_eksempel=(TYPE_COL, "first") if TYPE_COL in rib.columns else (PE_COL, "first"))
+               .reset_index()
+        )
+    else:
+        rib_agg = pd.DataFrame(columns=[PE_COL, MENG_COL, "Total_Volum_m3", "Antall_RIB_rader", "Type_eksempel"])
+
+    merged = rib_agg.merge(arm_agg, on=PE_COL, how="outer")
+
+    # --- Slå opp Omega-data per Mengdelistepost (første treff blant ;-separerte) ---
+    if df_omega is not None and MENG_COL in merged.columns:
+        omega_idx = (df_omega.assign(_kode=df_omega["Navn (Prosesskode)"].astype(str).str.strip())
+                             .drop_duplicates("_kode")
+                             .set_index("_kode"))
+        kontrakt_kol = "Kontraktsmengde" if "Kontraktsmengde" in omega_idx.columns else None
+        rapp_kol     = ("Rapportert mengde (Kumulativ)"
+                        if "Rapportert mengde (Kumulativ)" in omega_idx.columns else None)
+
+        def _omega_oppslag(meng):
+            if pd.isna(meng):
+                return (None, None, None, None)
+            for part in str(meng).split(";"):
+                p = part.strip()
+                if p and p in omega_idx.index:
+                    rad = omega_idx.loc[p]
+                    return (p,
+                            rad[kontrakt_kol] if kontrakt_kol else None,
+                            rad[rapp_kol]     if rapp_kol     else None,
+                            rad.get("Enhet"))
+            return (None, None, None, None)
+
+        oppslag = merged[MENG_COL].apply(_omega_oppslag)
+        merged["Mengdelistepost_match"] = [x[0] for x in oppslag]
+        merged["Kontraktsmengde"]       = [x[1] for x in oppslag]
+        merged["Rapportert_Mengde"]     = [x[2] for x in oppslag]
+        merged["Omega_Enhet"]           = [x[3] for x in oppslag]
+
+    merged = merged.rename(columns={PE_COL: "Produksjonsenhet", MENG_COL: "Mengdelistepost"})
+    merged.insert(0, "FOB_Status", status_label)
+
+    sort_kol = "Total_Volum_m3" if "Total_Volum_m3" in merged.columns else "Produksjonsenhet"
+    merged = merged.sort_values(sort_kol, ascending=False).reset_index(drop=True)
+    return merged
+
+
+def legg_til_ark(excel_path: str, sheet_name: str, df: pd.DataFrame) -> None:
+    """Åpne eksisterende Excel og legg til/erstatt et ark."""
+    from openpyxl import load_workbook
+    from openpyxl.utils.dataframe import dataframe_to_rows
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.table import Table, TableStyleInfo
+    from lagring import vent_til_skrivbar
+
+    vent_til_skrivbar(excel_path)
+    wb = load_workbook(excel_path)
+    if sheet_name in wb.sheetnames:
+        del wb[sheet_name]
+    ws = wb.create_sheet(sheet_name)
+
+    if df.empty:
+        ws.cell(row=1, column=1, value=f"(Ingen rader for {sheet_name})")
+        wb.save(excel_path)
+        return
+
+    for row in dataframe_to_rows(df, index=False, header=True):
+        ws.append(row)
+
+    # Enkel formatering: header med farge, autobredde, frys topprad
+    hdr_font = Font(bold=True, color="FFFFFF", name="Calibri", size=11)
+    hdr_fill = PatternFill("solid", fgColor="C55A11")  # oransje for å skille fra hovedrapport
+    thin = Side(style="thin", color="BDBDBD")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    align_top = Alignment(vertical="top", wrap_text=False)
+
+    for ci in range(1, df.shape[1] + 1):
+        c = ws.cell(row=1, column=ci)
+        c.font = hdr_font
+        c.fill = hdr_fill
+        c.border = border
+        c.alignment = Alignment(vertical="center", wrap_text=True, horizontal="center")
+
+    for ri in range(2, df.shape[0] + 2):
+        for ci in range(1, df.shape[1] + 1):
+            c = ws.cell(row=ri, column=ci)
+            c.border = border
+            c.alignment = align_top
+            c.font = Font(name="Calibri", size=10)
+
+    # Auto-bredde
+    for ci, kn in enumerate(df.columns, 1):
+        cl = get_column_letter(ci)
+        mx = max(len(str(kn)), 8)
+        for ri in range(2, df.shape[0] + 2):
+            v = ws.cell(row=ri, column=ci).value
+            if v is not None:
+                mx = max(mx, len(str(v)))
+        ws.column_dimensions[cl].width = min(mx + 2, 45)
+
+    # Tallformat: Volum og Vekt
+    tall_format = {
+        "Total_Volum_m3":   '#,##0.00',
+        "Total_Vekt_kg":    '#,##0',
+        "Antall_jern":      '0',
+        "Antall_RIB_rader": '0',
+        "Kontraktsmengde":  '#,##0.00',
+        "Rapportert_Mengde":'#,##0.00',
+    }
+    for kn, fmt in tall_format.items():
+        if kn in list(df.columns):
+            ci = list(df.columns).index(kn) + 1
+            cl = get_column_letter(ci)
+            for ri in range(2, df.shape[0] + 2):
+                ws[f"{cl}{ri}"].number_format = fmt
+
+    # Sett som tabell for filter/sortering
+    try:
+        max_col = get_column_letter(df.shape[1])
+        max_row = df.shape[0] + 1
+        tbl = Table(displayName=f"Tabell_{sheet_name}", ref=f"A1:{max_col}{max_row}")
+        tbl.tableStyleInfo = TableStyleInfo(
+            name="TableStyleMedium2",
+            showFirstColumn=False, showLastColumn=False,
+            showRowStripes=False, showColumnStripes=False,
+        )
+        ws.add_table(tbl)
+    except Exception:
+        pass
+
+    ws.freeze_panes = "A2"
+    wb.save(excel_path)
+
+
+def _fob_mengde_til_volum(
+    df_rib: pd.DataFrame,
+    betong_koder: set[str] | None = None,
+) -> pd.DataFrame:
+    """Ekspander semikolon-separerte FOB_Mengde/FOB_Mengdelistepost til éin rad per par.
+
+    Alle postar (stål og betong) vert med — slik at find_all_mengdelistepost_groups
+    kan identifisere og pare stål-postar med betong-postar korrekt.
+
+    Volumhandtering:
+      - Betong-post (i betong_koder): PGF_Volum = FOB_Mengde-verdi for denne posten ← rett
+      - Stål-post:                    PGF_Volum behaldt frå originalt element (vert IKKJE
+                                      overstyrt av FOB_Mengde-verdien, som er stålvekt i kg
+                                      og ikkje betonvolum i m³)
+
+    Stålmengde-kolonne (_FOB_Staal_Mengde):
+      - Betong-rad: _FOB_Staal_Mengde = sum av FOB_Mengde for alle stål-postar i elementet.
+                    Brukast av Mengdeuttak_Armering.py som Total_Vekt (kg) i staden for
+                    den beregnede armeringsvekta.
+      - Stål-rad:   _FOB_Staal_Mengde = individuell FOB_Mengde for denne stål-posten.
+
+    Eksempel:
+        FOB_Mengdelistepost: "1303.01.07.223.7.1; 1303.01.07.223.1.1"
+        FOB_Mengde:          "3000;               12,5"
+    → 2 rader:
+        rad 1: post=stål-kode,   PGF_Volum = original (0 / NaN),  _FOB_Staal_Mengde = 3000
+        rad 2: post=betong-kode, PGF_Volum = 12.5,                 _FOB_Staal_Mengde = 3000
+
+    betong_koder: set med gyldige betong-prosesskoder frå Omega.
+                  Om None: alle par får PGF_Volum sett frå FOB_Mengde (gamalt åtferd).
+    """
+    FOB_MENG_KOL   = "FOB_Info.FOB_Mengdelistepost"
+    FOB_MENGDE_KOL = "FOB_Info.FOB_Mengde"
+    VOL_KOL        = "PGF_Kalkyle.PGF_Volum"
+
+    if FOB_MENGDE_KOL not in df_rib.columns:
+        print(f"[WARNING] {FOB_MENGDE_KOL} finst ikkje i RIB-data — held fram med PGF_Volum")
+        if VOL_KOL not in df_rib.columns:
+            # Garanter at volum-kolonna finst slik at nedstraums-skriptet ikkje
+            # feilar med KeyError (gjeld data utan PGF_Kalkyle, t.d. K10).
+            df_rib = df_rib.copy()
+            df_rib[VOL_KOL] = pd.NA
+        return df_rib
+
+    rader: list[pd.Series] = []
+    n_betong_oppdatert = 0
+    for _, rad in df_rib.iterrows():
+        kode_str = str(rad.get(FOB_MENG_KOL) or "").strip()
+        meng_str = str(rad.get(FOB_MENGDE_KOL) or "").strip().replace(",", ".")
+        koder   = [k.strip() for k in kode_str.split(";") if k.strip() and k.strip() != "nan"]
+        mengder = [m.strip() for m in meng_str.split(";") if m.strip() and m.strip() != "nan"]
+        if koder and mengder:
+            # Ekspander ALLE postar — stål-postar må vere med slik at
+            # find_all_mengdelistepost_groups kan identifisere og pare dei.
+            # For betong-postar: sett PGF_Volum = FOB_Mengde-verdien (rett volum).
+            # For stål-postar:   IKKJE overstyr PGF_Volum (behal original frå elementet).
+            #                    Stålvekta (t.d. 3000 kg) skal ikkje brukast som volum.
+
+            # FOB-data kan duplisere stålmengda på fleire hierarki-nivå, t.d.:
+            #   "1303.01.07.223.7;1303.01.07.223.7.1" = "9,792;9,792" kg
+            # Her er foreldrekoden ".7" og barnekoden ".7.1" same fysiske mengde.
+            # Vi filtrerer vekk foreldrekodar når ein meir spesifikk barnekode finst
+            # i same lista (dvs. behald berre "bladnodene") for å unngå dobbel-telling.
+            def _er_bladkode(idx: int) -> bool:
+                k = koder[idx]
+                pref = k + "."
+                for j, other in enumerate(koder):
+                    if j != idx and other.startswith(pref):
+                        return False
+                return True
+
+            blad_idx = [i for i in range(len(koder)) if _er_bladkode(i)]
+
+            # Rekn ut total stål-mengde frå BLADNODENE (ikkje duplisert frå foreldre-nivå).
+            # Vert lagra i _FOB_Staal_Mengde slik at Mengdeuttak_Armering.py kan bruke
+            # den korrekte vekta frå FOB i staden for den beregnede armeringsvekta.
+            staal_total = 0.0
+            for i in blad_idx:
+                er_betong_i = betong_koder is None or koder[i] in betong_koder
+                if not er_betong_i:
+                    v = pd.to_numeric(mengder[i], errors="coerce")
+                    if not pd.isna(v):
+                        staal_total += v
+
+            for i, (kode, mengde_s) in enumerate(zip(koder, mengder)):
+                ny = rad.copy()
+                ny[FOB_MENG_KOL] = kode
+                er_betong = betong_koder is None or kode in betong_koder
+                er_blad = i in blad_idx
+                if er_betong:
+                    # Betong-post: oppdater volum frå FOB_Mengde;
+                    # bær total stål-mengde vidare for vektutrekning nedstraums.
+                    ny[VOL_KOL] = pd.to_numeric(mengde_s, errors="coerce")
+                    n_betong_oppdatert += 1
+                    if staal_total > 0:
+                        ny["_FOB_Staal_Mengde"] = staal_total
+                else:
+                    # Stål-post: behal original PGF_Volum.
+                    # Berre BLADKODER (mest spesifikke) får _FOB_Staal_Mengde — foreldre-
+                    # kodar er duplikat og må ikkje telje to gonger.
+                    if er_blad:
+                        ny["_FOB_Staal_Mengde"] = pd.to_numeric(mengde_s, errors="coerce")
+                rader.append(ny)
+        else:
+            rader.append(rad)
+
+    if not rader:
+        if VOL_KOL not in df_rib.columns:
+            df_rib = df_rib.copy()
+            df_rib[VOL_KOL] = pd.NA
+        return df_rib
+    result = pd.DataFrame(rader).reset_index(drop=True)
+    # Garanter at volum-kolonna finst sjølv om ingen betong-rad sette han
+    # (t.d. data utan PGF_Kalkyle der berre stål-postar fanst).
+    if VOL_KOL not in result.columns:
+        result[VOL_KOL] = pd.NA
+    n_staal = len(result) - n_betong_oppdatert if betong_koder else 0
+    har_fob_staal_kol = "_FOB_Staal_Mengde" in result.columns
+    n_med_staal_mengde = int(result["_FOB_Staal_Mengde"].notna().sum()) if har_fob_staal_kol else 0
+    filtr_info = (f", {n_betong_oppdatert} betong-par oppdatert, "
+                  f"{n_staal} stål-par behaldt med original volum"
+                  if betong_koder else "")
+    staal_info = (f"; {n_med_staal_mengde} rader med _FOB_Staal_Mengde"
+                  if har_fob_staal_kol else "")
+    print(f"[INFO] FOB_Mengde-modus: {len(df_rib):,} rader -> {len(result):,} rader"
+          f" etter ekspansjon{filtr_info}{staal_info}")
+    return result
+
+
+def kjor_mengdeuttak(
+    csv_path: str | list[str] | None = None,
+    omega_path: str = "",
+    armering_script: str = DEFAULT_ARMERING_SCRIPT,
+    *,
+    df_override: pd.DataFrame | None = None,
+    extra_globals: dict | None = None,
+    hoved_status: str = HOVED_STATUS,
+    ekstra_status: str | None = EKSTRA_STATUS,
+    lp_only: bool = True,
+    fob_mengde_mode: bool = False,
+) -> str:
+    """Kjør Mengdeuttak_Armering.py mot en kombinert CSV + Omega-fil.
+
+    1. Hovedflyt: kun rader med FOB_Status == hoved_status (default S5)
+    2. Hvis ekstra_status er satt (default S4): bygg et eget sammendrag
+       og appender som ark <ekstra_status>_Sammendrag i output-Excel.
+
+    df_override: om satt, nyttast denne DataFramen i staden for å lese CSV.
+                 csv_path vert ignorert, men omega_path krevst alltid.
+
+    Returnerer path til output-Excel.
+    """
+    if not omega_path or not os.path.exists(omega_path):
+        raise FileNotFoundError(f"Omega-fil finnes ikke: {omega_path}")
+    if not os.path.exists(armering_script):
+        raise FileNotFoundError(f"Mengdeuttak-skript finnes ikke: {armering_script}")
+
+    # Les CSV éin gong og normaliser — eller bruk pre-filtrert DataFrame
+    if df_override is not None:
+        df_full = df_override
+        print(f"[INFO] Brukar pre-filtrert DataFrame: {len(df_full):,} rader")
+    else:
+        if csv_path is None:
+            raise ValueError("Anten csv_path eller df_override må oppgivast.")
+        df_full = les_csv(csv_path, lp_only=lp_only)
+
+    # Splitt for hovedstatus (S5)
+    print(f"\n[INFO] Hovedrapport — starter med FOB_Status={hoved_status}")
+    df_arm_hoved, df_rib_hoved = split_arm_rib(df_full, fob_status=hoved_status)
+
+    betong_koder: set[str] | None = None
+    if fob_mengde_mode:
+        print("[INFO] FOB_Mengde-modus aktivert — les betong-kodar frå Omega for filtrering")
+        betong_koder = _les_omega_betong_koder(omega_path)
+        print(f"[INFO]   -> {len(betong_koder)} betong-prosesskoder lest")
+        print("[INFO] Konverterer RIB-volum frå FOB_Mengde "
+              "(alle postar med, men berre betong-postar får oppdatert volum)")
+        df_rib_hoved = _fob_mengde_til_volum(df_rib_hoved, betong_koder)
+
+    # ----- Promoter kvalifiserte ekstra-status-elementer (S4) til hovedrapport -----
+    promoterte_pe: set[str] = set()
+    df_arm_ekstra_rest = pd.DataFrame()
+    df_rib_ekstra_rest = pd.DataFrame()
+    if ekstra_status:
+        df_arm_e_full, df_rib_e_full = split_arm_rib(df_full, fob_status=ekstra_status)
+
+        print(f"\n[INFO] Sjekker hvilke {ekstra_status}-elementer som skal promoteres til hovedrapport "
+              f"(må ha mengdelistepost + Omega-match)...")
+        omega_codes, omega_prefixes = _les_omega_koder(omega_path)
+        promoterte_pe, ekstra_idx = finn_promoterte_s4_pe(
+            df_arm_e_full, df_rib_e_full, omega_codes, omega_prefixes,
+        )
+        print(f"[INFO] {len(promoterte_pe)} PE-er + {len(ekstra_idx)} rader-utan-PE "
+              f"kvalifiserer for hovedrapport")
+
+        if promoterte_pe or ekstra_idx:
+            df_arm_promotert = _filtrer_pa_pe(df_arm_e_full, promoterte_pe, behold=True)
+            df_rib_promotert = _filtrer_pa_pe(df_rib_e_full, promoterte_pe, behold=True)
+            if ekstra_idx:
+                idx_i_rib = list(ekstra_idx & set(df_rib_e_full.index))
+                if idx_i_rib:
+                    df_rib_promotert = pd.concat(
+                        [df_rib_promotert, df_rib_e_full.loc[idx_i_rib]],
+                        ignore_index=False,
+                    )
+            if fob_mengde_mode:
+                df_rib_promotert = _fob_mengde_til_volum(df_rib_promotert, betong_koder)
+            print(f"  -> ARM-rader promotert: {len(df_arm_promotert):,}")
+            print(f"  -> RIB-rader promotert: {len(df_rib_promotert):,}")
+            df_arm_hoved = pd.concat([df_arm_hoved, df_arm_promotert], ignore_index=True)
+            df_rib_hoved = pd.concat([df_rib_hoved, df_rib_promotert], ignore_index=True)
+            print(f"  -> Kombinert ARM ({hoved_status} + promotert): {len(df_arm_hoved):,}")
+            print(f"  -> Kombinert RIB ({hoved_status} + promotert): {len(df_rib_hoved):,}")
+
+        df_arm_ekstra_rest = _filtrer_pa_pe(df_arm_e_full, promoterte_pe, behold=False)
+        df_rib_ekstra_rest = _filtrer_pa_pe(df_rib_e_full, promoterte_pe, behold=False)
+        if ekstra_idx:
+            # Fjern rader-utan-PE som alt er promoterte
+            idx_i_rest = list(ekstra_idx & set(df_rib_ekstra_rest.index))
+            if idx_i_rest:
+                df_rib_ekstra_rest = df_rib_ekstra_rest.drop(index=idx_i_rest, errors="ignore")
+        print(f"  -> ARM-rader igjen til {ekstra_status}-arket: {len(df_arm_ekstra_rest):,}")
+        print(f"  -> RIB-rader igjen til {ekstra_status}-arket: {len(df_rib_ekstra_rest):,}")
+
+    # Eksponer som tidligere variabler (for monkey-patching)
+    df_armering, df_RIB = df_arm_hoved, df_rib_hoved
+
+    # Sjekk at nøkkelkolonner finnes
+    arm_paakrevd = ("PGF_RIB_Info.Vekt", "PGF_RIB_Info.Stangdiameter",
+                    "PGF_RIB_Info.Lengde", "FOB_Info.FOB_Mengdelistepost",
+                    "FOB_Info.FOB_Produksjonsenhet")
+    rib_paakrevd = ("PGF_Kalkyle.PGF_Volum", "PGF_Info.PGF_Fagkapittel",
+                    "FOB_Info.FOB_Mengdelistepost", "FOB_Info.FOB_Produksjonsenhet")
+    for c in arm_paakrevd:
+        if c not in df_armering.columns:
+            print(f"[WARNING] ARM mangler kolonne: {c}")
+    for c in rib_paakrevd:
+        if c not in df_RIB.columns:
+            print(f"[WARNING] RIB mangler kolonne: {c}")
+
+    # Monkey-patch pd.read_excel: Omega passerer gjennom, ARM/RIB returneres in-memory.
+    _original_read_excel = pd.read_excel
+
+    def _patched_read_excel(io, *args, **kwargs):
+        sheet_name = kwargs.get("sheet_name")
+        if sheet_name is None and args:
+            sheet_name = args[0]
+        path_str = str(io)
+        is_omega = ("omega" in path_str.lower())
+        if not is_omega and sheet_name == "Armering":
+            return df_armering
+        if not is_omega and sheet_name == "RIB":
+            return df_RIB
+        return _original_read_excel(io, *args, **kwargs)
+
+    pd.read_excel = _patched_read_excel
+    output_file = None
+    df_omega_main = None
+    try:
+        run_globals: dict = {
+            "__name__": "__main__",
+            "__file__": armering_script,
+            "excel_file_armering": "<csv_arm_in_memory>",
+            "excel_file_RIB":      "<csv_rib_in_memory>",
+            "excel_file_OMEGA":    omega_path,
+        }
+        if extra_globals:
+            run_globals.update(extra_globals)
+
+        with open(armering_script, "r", encoding="utf-8") as f:
+            kode = f.read()
+
+        print(f"\n[INFO] Kjører {armering_script} ...\n")
+        exec(compile(kode, armering_script, "exec"), run_globals)
+        output_file     = run_globals.get("output_file_third")
+        output_file_arm = run_globals.get("output_file_arm_path")
+        df_omega_main   = run_globals.get("df_omega")
+    finally:
+        pd.read_excel = _original_read_excel
+
+    # ----- Bygg ekstra-status-sammendrag fra resten (ikke-promoterte) -----
+    if ekstra_status and output_file and os.path.exists(output_file):
+        print(f"\n[INFO] Bygger sammendrag for ikke-promoterte FOB_Status={ekstra_status} ...")
+        # I FOB_Mengde-modus må også S4-resten få volum frå FOB_Mengde, elles
+        # manglar PGF_Kalkyle.PGF_Volum-kolonna (t.d. K10) og sammendraget feilar.
+        if fob_mengde_mode:
+            df_rib_ekstra_rest = _fob_mengde_til_volum(df_rib_ekstra_rest, betong_koder)
+        sammendrag_e = bygg_status_sammendrag(
+            df_arm_ekstra_rest, df_rib_ekstra_rest, df_omega_main, status_label=ekstra_status,
+        )
+        ark_navn = f"{ekstra_status}_Sammendrag"
+        # S4_Sammendrag legges i armeringsfilen, ikke i hovedfilen
+        maalfil = output_file_arm if (output_file_arm and os.path.exists(output_file_arm)) else output_file
+        legg_til_ark(maalfil, ark_navn, sammendrag_e)
+        print(f"[INFO] La til ark '{ark_navn}' med {len(sammendrag_e):,} rader i {maalfil}")
+
+    return output_file or ""
+
+
+if __name__ == "__main__":
+    kjor_mengdeuttak(
+        csv_path   = r"C:\Users\ifi\Downloads\selection-basket (30).csv",
+        omega_path = r"C:\Users\ifi\Scan Survey\6900 - Fornebubanen\6900-01-010 K7 - Lysaker og Vækerø Stasjon\APM FOB Gjennomgang\Omega_K7_April.xlsx",
+    )

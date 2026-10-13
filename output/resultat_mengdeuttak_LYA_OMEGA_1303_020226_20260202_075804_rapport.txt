@@ -1,0 +1,961 @@
+
+======================================================================
+RAPPORT: Mengdelisteposter fra RIB
+======================================================================
+
+Info: Funnet 72 posts fra RIB som IKKE finnes i OMEGA:
+Disse vil vises i rapporten uten OMEGA-mengder.
+
+Post: 1303.01.05.241.17
+  RIB-rader: 2
+    - Rad 17536: PE-LP092-V-1012
+    - Rad 17537: PE-LP093-V-1002
+  Tilhørende Armering (Produksjonsenhet PE-LP092-V-1012):
+    - Vekt: 298.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP093-V-1002):
+    - Vekt: 659.80 kg
+
+Post: 1303.01.05.241.17.1
+  RIB-rader: 2
+    - Rad 17536: PE-LP092-V-1012
+    - Rad 17537: PE-LP093-V-1002
+  Tilhørende Armering (Produksjonsenhet PE-LP092-V-1012):
+    - Vekt: 298.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP093-V-1002):
+    - Vekt: 659.80 kg
+
+Post: 1303.01.05.241.17.2
+  RIB-rader: 2
+    - Rad 17536: PE-LP092-V-1012
+    - Rad 17537: PE-LP093-V-1002
+  Tilhørende Armering (Produksjonsenhet PE-LP092-V-1012):
+    - Vekt: 298.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP093-V-1002):
+    - Vekt: 659.80 kg
+
+Post: 1303.01.05.241.17.3
+  RIB-rader: 2
+    - Rad 17536: PE-LP092-V-1012
+    - Rad 17537: PE-LP093-V-1002
+  Tilhørende Armering (Produksjonsenhet PE-LP092-V-1012):
+    - Vekt: 298.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP093-V-1002):
+    - Vekt: 659.80 kg
+
+Post: 1303.01.05.241.4.6
+  RIB-rader: 1
+    - Rad 17521: PE-LP096-V-1005
+  Tilhørende Armering (Produksjonsenhet PE-LP096-V-1005):
+    - Vekt: 5299.70 kg
+
+Post: 1303.01.05.251.1.6
+  RIB-rader: 1
+    - Rad 17490: PE-LP095-D-1004
+  Tilhørende Armering (Produksjonsenhet PE-LP095-D-1004):
+    - Vekt: 1450.40 kg
+
+Post: 1303.02.05.231.5
+  RIB-rader: 3
+    - Rad 16528: PE-LP061-V-1023
+    - Rad 16529: PE-LP061-V-1022
+    - Rad 16530: PE-LP061-V-1024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1023):
+    - Vekt: 1817.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+
+Post: 1303.02.05.231.5.1
+  RIB-rader: 3
+    - Rad 16528: PE-LP061-V-1023
+    - Rad 16529: PE-LP061-V-1022
+    - Rad 16530: PE-LP061-V-1024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1023):
+    - Vekt: 1817.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+
+Post: 1303.02.05.231.5.2
+  RIB-rader: 3
+    - Rad 16528: PE-LP061-V-1023
+    - Rad 16529: PE-LP061-V-1022
+    - Rad 16530: PE-LP061-V-1024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1023):
+    - Vekt: 1817.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+
+Post: 1303.02.05.231.5.3
+  RIB-rader: 2
+    - Rad 16529: PE-LP061-V-1022
+    - Rad 16530: PE-LP061-V-1024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+
+Post: 1303.02.05.231.5.4
+  RIB-rader: 3
+    - Rad 16528: PE-LP061-V-1023
+    - Rad 16529: PE-LP061-V-1022
+    - Rad 16530: PE-LP061-V-1024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1023):
+    - Vekt: 1817.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+
+Post: 1303.02.05.231.5.5
+  RIB-rader: 3
+    - Rad 16528: PE-LP061-V-1023
+    - Rad 16529: PE-LP061-V-1022
+    - Rad 16530: PE-LP061-V-1024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1023):
+    - Vekt: 1817.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+
+Post: 1303.02.05.231.5.6
+  RIB-rader: 2
+    - Rad 16529: PE-LP061-V-1022
+    - Rad 16530: PE-LP061-V-1024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+
+Post: 1303.02.05.241.13
+  RIB-rader: 2
+    - Rad 16523: PE-LP061-V-1028
+    - Rad 16524: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.13.1
+  RIB-rader: 2
+    - Rad 16523: PE-LP061-V-1028
+    - Rad 16524: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.13.2
+  RIB-rader: 2
+    - Rad 16523: PE-LP061-V-1028
+    - Rad 16524: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.13.3
+  RIB-rader: 2
+    - Rad 16523: PE-LP061-V-1028
+    - Rad 16524: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.13.4
+  RIB-rader: 2
+    - Rad 16523: PE-LP061-V-1028
+    - Rad 16524: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.14
+  RIB-rader: 9
+    - Rad 16514: PE-LP061-V-1020
+    - Rad 16515: PE-LP061-V-1021
+    - Rad 16516: PE-LP061-V-1022
+    - Rad 16517: PE-LP061-V-1024
+    - Rad 16518: PE-LP061-V-1025
+    - Rad 16519: PE-LP061-V-1026
+    - Rad 16520: PE-LP061-V-2022
+    - Rad 16521: PE-LP061-V-2023
+    - Rad 16522: PE-LP061-V-2024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1020):
+    - Vekt: 433.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1021):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1025):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1026):
+    - Vekt: 362.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2022):
+    - Vekt: 93.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2023):
+    - Vekt: 119.10 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2024):
+    - Vekt: 93.80 kg
+
+Post: 1303.02.05.241.14.1
+  RIB-rader: 9
+    - Rad 16514: PE-LP061-V-1020
+    - Rad 16515: PE-LP061-V-1021
+    - Rad 16516: PE-LP061-V-1022
+    - Rad 16517: PE-LP061-V-1024
+    - Rad 16518: PE-LP061-V-1025
+    - Rad 16519: PE-LP061-V-1026
+    - Rad 16520: PE-LP061-V-2022
+    - Rad 16521: PE-LP061-V-2023
+    - Rad 16522: PE-LP061-V-2024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1020):
+    - Vekt: 433.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1021):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1025):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1026):
+    - Vekt: 362.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2022):
+    - Vekt: 93.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2023):
+    - Vekt: 119.10 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2024):
+    - Vekt: 93.80 kg
+
+Post: 1303.02.05.241.14.2
+  RIB-rader: 9
+    - Rad 16514: PE-LP061-V-1020
+    - Rad 16515: PE-LP061-V-1021
+    - Rad 16516: PE-LP061-V-1022
+    - Rad 16517: PE-LP061-V-1024
+    - Rad 16518: PE-LP061-V-1025
+    - Rad 16519: PE-LP061-V-1026
+    - Rad 16520: PE-LP061-V-2022
+    - Rad 16521: PE-LP061-V-2023
+    - Rad 16522: PE-LP061-V-2024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1020):
+    - Vekt: 433.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1021):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1025):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1026):
+    - Vekt: 362.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2022):
+    - Vekt: 93.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2023):
+    - Vekt: 119.10 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2024):
+    - Vekt: 93.80 kg
+
+Post: 1303.02.05.241.14.3
+  RIB-rader: 9
+    - Rad 16514: PE-LP061-V-1020
+    - Rad 16515: PE-LP061-V-1021
+    - Rad 16516: PE-LP061-V-1022
+    - Rad 16517: PE-LP061-V-1024
+    - Rad 16518: PE-LP061-V-1025
+    - Rad 16519: PE-LP061-V-1026
+    - Rad 16520: PE-LP061-V-2022
+    - Rad 16521: PE-LP061-V-2023
+    - Rad 16522: PE-LP061-V-2024
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1020):
+    - Vekt: 433.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1021):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1022):
+    - Vekt: 2243.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1024):
+    - Vekt: 2184.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1025):
+    - Vekt: 15.60 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1026):
+    - Vekt: 362.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2022):
+    - Vekt: 93.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2023):
+    - Vekt: 119.10 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-2024):
+    - Vekt: 93.80 kg
+
+Post: 1303.02.05.241.15
+  RIB-rader: 1
+    - Rad 16513: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.15.1
+  RIB-rader: 1
+    - Rad 16513: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.15.2
+  RIB-rader: 1
+    - Rad 16513: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.15.3
+  RIB-rader: 1
+    - Rad 16513: PE-LP061-V-1028
+  Tilhørende Armering (Produksjonsenhet PE-LP061-V-1028):
+    - Vekt: 3289.90 kg
+
+Post: 1303.02.05.241.5.16
+  RIB-rader: 1
+    - Rad 16487: PE-LP063-V-1013
+  Tilhørende Armering (Produksjonsenhet PE-LP063-V-1013):
+    - Vekt: 405.30 kg
+
+Post: 1303.02.05.241.5.17
+  RIB-rader: 1
+    - Rad 16487: PE-LP063-V-1013
+  Tilhørende Armering (Produksjonsenhet PE-LP063-V-1013):
+    - Vekt: 405.30 kg
+
+Post: 1303.02.05.252.3.6
+  RIB-rader: 1
+    - Rad 16436: PE-LP061-F-1005
+  Tilhørende Armering (Produksjonsenhet PE-LP061-F-1005):
+    - Vekt: 6179.80 kg
+
+Post: 1303.03.05.223.5
+  RIB-rader: 3
+    - Rad 3549: PE-LP021-B-0001
+    - Rad 3550: PE-LP021-B-0002
+    - Rad 3551: PE-LP021-B-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0001):
+    - Vekt: 720.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0002):
+    - Vekt: 505.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0004):
+    - Vekt: 420.60 kg
+
+Post: 1303.03.05.223.5.1
+  RIB-rader: 3
+    - Rad 3549: PE-LP021-B-0001
+    - Rad 3550: PE-LP021-B-0002
+    - Rad 3551: PE-LP021-B-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0001):
+    - Vekt: 720.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0002):
+    - Vekt: 505.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0004):
+    - Vekt: 420.60 kg
+
+Post: 1303.03.05.223.5.2
+  RIB-rader: 3
+    - Rad 3549: PE-LP021-B-0001
+    - Rad 3550: PE-LP021-B-0002
+    - Rad 3551: PE-LP021-B-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0001):
+    - Vekt: 720.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0002):
+    - Vekt: 505.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0004):
+    - Vekt: 420.60 kg
+
+Post: 1303.03.05.223.5.3
+  RIB-rader: 3
+    - Rad 3549: PE-LP021-B-0001
+    - Rad 3550: PE-LP021-B-0002
+    - Rad 3551: PE-LP021-B-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0001):
+    - Vekt: 720.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0002):
+    - Vekt: 505.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0004):
+    - Vekt: 420.60 kg
+
+Post: 1303.03.05.223.5.4
+  RIB-rader: 3
+    - Rad 3549: PE-LP021-B-0001
+    - Rad 3550: PE-LP021-B-0002
+    - Rad 3551: PE-LP021-B-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0001):
+    - Vekt: 720.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0002):
+    - Vekt: 505.90 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-B-0004):
+    - Vekt: 420.60 kg
+
+Post: 1303.03.05.231.21
+  RIB-rader: 9
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.1
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.2
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.3
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.4
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.5
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.6
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.7
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.8
+  RIB-rader: 5
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.21.9
+  RIB-rader: 9
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+    - Rad 3481: PE-LP031-V-0001
+    - Rad 3482: PE-LP031-V-0002
+    - Rad 3483: PE-LP031-V-0002
+    - Rad 3484: PE-LP031-V-0003
+    - Rad 3485: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0001):
+    - Vekt: 558.50 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0003):
+    - Vekt: 535.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22
+  RIB-rader: 4
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.1
+  RIB-rader: 4
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.2
+  RIB-rader: 3
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.3
+  RIB-rader: 2
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.4
+  RIB-rader: 3
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.5
+  RIB-rader: 3
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.6
+  RIB-rader: 4
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.7
+  RIB-rader: 4
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.22.8
+  RIB-rader: 4
+    - Rad 3477: PE-LP031-V-0004
+    - Rad 3478: PE-LP031-V-0004
+    - Rad 3479: PE-LP031-V-0002
+    - Rad 3480: PE-LP031-V-0004
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0002):
+    - Vekt: 11554.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-V-0004):
+    - Vekt: 8438.00 kg
+
+Post: 1303.03.05.231.24
+  RIB-rader: 4
+    - Rad 3471: PE-LP012-V-0005
+    - Rad 3472: PE-LP012-V-0006
+    - Rad 3473: PE-LP021-V-0005
+    - Rad 3474: PE-LP021-V-0006
+
+Post: 1303.03.05.231.24.1
+  RIB-rader: 4
+    - Rad 3471: PE-LP012-V-0005
+    - Rad 3472: PE-LP012-V-0006
+    - Rad 3473: PE-LP021-V-0005
+    - Rad 3474: PE-LP021-V-0006
+
+Post: 1303.03.05.231.24.2
+  RIB-rader: 2
+    - Rad 3473: PE-LP021-V-0005
+    - Rad 3474: PE-LP021-V-0006
+
+Post: 1303.03.05.231.24.3
+  RIB-rader: 4
+    - Rad 3471: PE-LP012-V-0005
+    - Rad 3472: PE-LP012-V-0006
+    - Rad 3473: PE-LP021-V-0005
+    - Rad 3474: PE-LP021-V-0006
+
+Post: 1303.03.05.231.24.4
+  RIB-rader: 4
+    - Rad 3471: PE-LP012-V-0005
+    - Rad 3472: PE-LP012-V-0006
+    - Rad 3473: PE-LP021-V-0005
+    - Rad 3474: PE-LP021-V-0006
+
+Post: 1303.03.05.231.24.5
+  RIB-rader: 4
+    - Rad 3471: PE-LP012-V-0005
+    - Rad 3472: PE-LP012-V-0006
+    - Rad 3473: PE-LP021-V-0005
+    - Rad 3474: PE-LP021-V-0006
+
+Post: 1303.03.05.231.25.3
+  RIB-rader: 4
+    - Rad 3467: PE-LP012-V-0005
+    - Rad 3468: PE-LP012-V-0006
+    - Rad 3469: PE-LP021-V-0005
+    - Rad 3470: PE-LP021-V-0006
+
+Post: 1303.03.05.241.18
+  RIB-rader: 1
+    - Rad 3328: PE-LP102-V-1016
+  Tilhørende Armering (Produksjonsenhet PE-LP102-V-1016):
+    - Vekt: 71.40 kg
+
+Post: 1303.03.05.241.18.1
+  RIB-rader: 1
+    - Rad 3328: PE-LP102-V-1016
+  Tilhørende Armering (Produksjonsenhet PE-LP102-V-1016):
+    - Vekt: 71.40 kg
+
+Post: 1303.03.05.241.18.2
+  RIB-rader: 1
+    - Rad 3328: PE-LP102-V-1016
+  Tilhørende Armering (Produksjonsenhet PE-LP102-V-1016):
+    - Vekt: 71.40 kg
+
+Post: 1303.03.05.241.18.3
+  RIB-rader: 1
+    - Rad 3328: PE-LP102-V-1016
+  Tilhørende Armering (Produksjonsenhet PE-LP102-V-1016):
+    - Vekt: 71.40 kg
+
+Post: 1303.03.05.241.18.4
+  RIB-rader: 1
+    - Rad 3328: PE-LP102-V-1016
+  Tilhørende Armering (Produksjonsenhet PE-LP102-V-1016):
+    - Vekt: 71.40 kg
+
+Post: 1303.03.05.241.8.16
+  RIB-rader: 2
+    - Rad 3183: PE-LP021-V-1003
+    - Rad 3184: PE-LP021-V-1004
+  Tilhørende Armering (Produksjonsenhet PE-LP021-V-1003):
+    - Vekt: 896.30 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP021-V-1004):
+    - Vekt: 903.00 kg
+
+Post: 1303.03.05.252.9
+  RIB-rader: 10
+    - Rad 3056: PE-LP031-F-1001
+    - Rad 3057: PE-LP031-F-1001
+    - Rad 3058: PE-LP031-F-1001
+    - Rad 3059: PE-LP031-F-1001
+    - Rad 3060: PE-LP031-F-1001
+    - Rad 3061: PE-LP031-F-1001
+    - Rad 3062: PE-LP031-F-1001
+    - Rad 3063: PE-LP031-F-1001
+    - Rad 3064: PE-LP031-F-1001
+    - Rad 3065: PE-LP031-F-1001
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+
+Post: 1303.03.05.252.9.1
+  RIB-rader: 10
+    - Rad 3056: PE-LP031-F-1001
+    - Rad 3057: PE-LP031-F-1001
+    - Rad 3058: PE-LP031-F-1001
+    - Rad 3059: PE-LP031-F-1001
+    - Rad 3060: PE-LP031-F-1001
+    - Rad 3061: PE-LP031-F-1001
+    - Rad 3062: PE-LP031-F-1001
+    - Rad 3063: PE-LP031-F-1001
+    - Rad 3064: PE-LP031-F-1001
+    - Rad 3065: PE-LP031-F-1001
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+
+Post: 1303.03.05.252.9.5
+  RIB-rader: 10
+    - Rad 3056: PE-LP031-F-1001
+    - Rad 3057: PE-LP031-F-1001
+    - Rad 3058: PE-LP031-F-1001
+    - Rad 3059: PE-LP031-F-1001
+    - Rad 3060: PE-LP031-F-1001
+    - Rad 3061: PE-LP031-F-1001
+    - Rad 3062: PE-LP031-F-1001
+    - Rad 3063: PE-LP031-F-1001
+    - Rad 3064: PE-LP031-F-1001
+    - Rad 3065: PE-LP031-F-1001
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+
+Post: 1303.03.05.252.9.6
+  RIB-rader: 10
+    - Rad 3056: PE-LP031-F-1001
+    - Rad 3057: PE-LP031-F-1001
+    - Rad 3058: PE-LP031-F-1001
+    - Rad 3059: PE-LP031-F-1001
+    - Rad 3060: PE-LP031-F-1001
+    - Rad 3061: PE-LP031-F-1001
+    - Rad 3062: PE-LP031-F-1001
+    - Rad 3063: PE-LP031-F-1001
+    - Rad 3064: PE-LP031-F-1001
+    - Rad 3065: PE-LP031-F-1001
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+
+Post: 1303.03.05.252.9.7
+  RIB-rader: 2
+    - Rad 3064: PE-LP031-F-1001
+    - Rad 3065: PE-LP031-F-1001
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+
+Post: 1303.03.05.252.9.8
+  RIB-rader: 1
+    - Rad 3064: PE-LP031-F-1001
+  Tilhørende Armering (Produksjonsenhet PE-LP031-F-1001):
+    - Vekt: 5661.80 kg
+
+======================================================================
+RESULTAT: Alle 1107 RIB-rader beholdes (ingen slettes)
+======================================================================

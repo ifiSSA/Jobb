@@ -1,0 +1,551 @@
+# -*- coding: utf-8 -*-
+"""
+GUI for å kjøre mengde_oversikt og/eller Mengdeuttak_Armering.
+Start med:  python mengde_oversikt_gui.py
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import io
+import json
+import threading
+import subprocess
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+
+# ── Standardstiar ─────────────────────────────────────────────────────────────
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _SCRIPT_DIR)
+
+# Hugsar siste filval mellom køyringar.
+_INNSTILLINGAR_FIL = os.path.join(_SCRIPT_DIR, "mengde_oversikt_gui_innstillingar.json")
+
+_DEFAULT_CSV = r"C:\Users\ifi\Downloads\selection-basket (34).csv"
+_DEFAULT_OMEGA = (
+    r"C:\Users\ifi\Scan Survey\6900 - Fornebubanen"
+    r"\6900-01-010 K7 - Lysaker og Vækerø Stasjon"
+    r"\APM FOB Gjennomgang\Omega_K7_April.xlsx"
+)
+_DEFAULT_ISY = (
+    r"C:\Users\ifi\Scan Survey\6900 - Fornebubanen"
+    r"\6900-01-010 K7 - Lysaker og Vækerø Stasjon"
+    r"\Målebrev\Mengdelistpost NS3420 isylinker.xlsx"
+)
+_DEFAULT_APM_MAPPE = (
+    r"C:\Users\ifi\Scan Survey\6900 - Fornebubanen"
+    r"\6900-01-010 K7 - Lysaker og Vækerø Stasjon"
+    r"\APM FOB Gjennomgang"
+)
+_MAPPE_FT = [("Alle filer", "*.*")]
+
+_CSV_FT    = [("CSV-filer", "*.csv"), ("Alle filer", "*.*")]
+_EXCEL_FT  = [("Excel-filer", "*.xlsx *.xls"), ("Alle filer", "*.*")]
+
+# ── Stdout-omdirigering til tekst-widget ──────────────────────────────────────
+
+class _BytesWidgetStream(io.RawIOBase):
+    """Bytes-lag under _WidgetStream — trengst av codecs.getwriter."""
+
+    def __init__(self, text_stream: "_WidgetStream"):
+        self._t = text_stream
+
+    def write(self, b: bytes | bytearray) -> int:  # type: ignore[override]
+        self._t.write(b.decode("utf-8", errors="replace"))
+        return len(b)
+
+    def flush(self) -> None:
+        pass
+
+
+class _WidgetStream(io.TextIOBase):
+    """Sender write()-kall til ein tkinter Text-widget (trådsikkert)."""
+
+    def __init__(self, widget: tk.Text):
+        self._w = widget
+        self.buffer = _BytesWidgetStream(self)   # for codecs.getwriter
+
+    def write(self, s: str) -> int:
+        self._w.after(0, self._append, s)
+        return len(s)
+
+    def _append(self, s: str) -> None:
+        self._w.configure(state="normal")
+        self._w.insert("end", s)
+        self._w.see("end")
+        self._w.configure(state="disabled")
+
+    def flush(self) -> None:
+        pass
+
+
+# ── Hovud-GUI ────────────────────────────────────────────────────────────────
+
+class MengdeApp(tk.Tk):
+    PAD = 8
+
+    def __init__(self):
+        super().__init__()
+        self.title("Mengde Oversikt")
+        self.resizable(True, False)
+        self.minsize(700, 0)
+
+        # Last lagra val frå førre køyring (fall tilbake til standardar)
+        lagra = self._les_innstillingar()
+
+        self._csv_stiar: list[str] = lagra.get(
+            "csv_stiar", [_DEFAULT_CSV] if os.path.exists(_DEFAULT_CSV) else []
+        )
+        self._isy_stiar: list[str] = lagra.get(
+            "isy_stiar", [_DEFAULT_ISY] if os.path.exists(_DEFAULT_ISY) else []
+        )
+        self._omega_var     = tk.StringVar(value=lagra.get("omega", _DEFAULT_OMEGA))
+        self._apm_mappe     = tk.StringVar(value=lagra.get("apm_mappe", _DEFAULT_APM_MAPPE))
+        self._rib_arm       = tk.BooleanVar(value=lagra.get("rib_arm", True))
+        self._fob_mengde    = tk.BooleanVar(value=lagra.get("fob_mengde", False))
+        self._hopp_over_apm = tk.BooleanVar(value=lagra.get("hopp_over_apm", False))
+
+        self._output_oversikt:  str | None  = None
+        self._output_rib_arm:   list[str]  = []
+        self._output_apm:       str | None  = None
+        self._running           = False
+
+        self._build_ui()
+
+        # Lagre val når vindauget vert lukka
+        self.protocol("WM_DELETE_WINDOW", self._ved_lukking)
+
+    # ── Lagring av filval mellom køyringar ──────────────────────────────────────
+
+    def _les_innstillingar(self) -> dict:
+        try:
+            with open(_INNSTILLINGAR_FIL, encoding="utf-8") as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _lagre_innstillingar(self) -> None:
+        data = {
+            "csv_stiar":     list(self._csv_lb.get(0, "end")),
+            "isy_stiar":     list(self._isy_lb.get(0, "end")),
+            "omega":         self._omega_var.get().strip(),
+            "apm_mappe":     self._apm_mappe.get().strip(),
+            "rib_arm":       bool(self._rib_arm.get()),
+            "fob_mengde":    bool(self._fob_mengde.get()),
+            "hopp_over_apm": bool(self._hopp_over_apm.get()),
+        }
+        try:
+            with open(_INNSTILLINGAR_FIL, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass  # ikkje kritisk om lagring feilar
+
+    def _ved_lukking(self) -> None:
+        self._lagre_innstillingar()
+        self.destroy()
+
+    # ── UI-bygging ────────────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        p = self.PAD
+        outer = ttk.Frame(self, padding=p)
+        outer.pack(fill="both", expand=True)
+
+        # Overskrift
+        ttk.Label(
+            outer,
+            text="Mengde Oversikt — Filvalg",
+            font=("Segoe UI", 13, "bold"),
+        ).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, p))
+
+        # ── CSV-listeboks ────────────────────────────────────────────────────────
+        ttk.Label(outer, text="CSV-filer:", anchor="e", width=22).grid(
+            row=1, column=0, sticky="ne", padx=(0, 4), pady=2,
+        )
+
+        csv_frame = ttk.Frame(outer)
+        csv_frame.grid(row=1, column=1, columnspan=2, sticky="ew", pady=2)
+        csv_frame.columnconfigure(0, weight=1)
+
+        self._csv_lb = tk.Listbox(csv_frame, height=4, selectmode="extended",
+                                   font=("Consolas", 9))
+        sb_csv = ttk.Scrollbar(csv_frame, orient="vertical", command=self._csv_lb.yview)
+        self._csv_lb.configure(yscrollcommand=sb_csv.set)
+        self._csv_lb.grid(row=0, column=0, sticky="ew")
+        sb_csv.grid(row=0, column=1, sticky="ns")
+
+        csv_btn_frame = ttk.Frame(csv_frame)
+        csv_btn_frame.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        ttk.Button(csv_btn_frame, text="Legg til …", width=10,
+                   command=self._legg_til_csv).pack(side="left", padx=(0, 4))
+        ttk.Button(csv_btn_frame, text="Fjern valgte", width=12,
+                   command=self._fjern_csv).pack(side="left")
+
+        for sti in self._csv_stiar:
+            self._csv_lb.insert("end", sti)
+
+        # ── Omega-fil ────────────────────────────────────────────────────────────
+        self._fil_rad(outer, 2, "Omega-fil:", self._omega_var, _EXCEL_FT)
+
+        # ── ISY Linker-listeboks ──────────────────────────────────────────────
+        ttk.Label(outer, text="ISY Linker-filer:", anchor="e", width=22).grid(
+            row=3, column=0, sticky="ne", padx=(0, 4), pady=2,
+        )
+
+        isy_frame = ttk.Frame(outer)
+        isy_frame.grid(row=3, column=1, columnspan=2, sticky="ew", pady=2)
+        isy_frame.columnconfigure(0, weight=1)
+
+        self._isy_lb = tk.Listbox(isy_frame, height=3, selectmode="extended",
+                                   font=("Consolas", 9))
+        sb_isy = ttk.Scrollbar(isy_frame, orient="vertical", command=self._isy_lb.yview)
+        self._isy_lb.configure(yscrollcommand=sb_isy.set)
+        self._isy_lb.grid(row=0, column=0, sticky="ew")
+        sb_isy.grid(row=0, column=1, sticky="ns")
+
+        isy_btn_frame = ttk.Frame(isy_frame)
+        isy_btn_frame.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        ttk.Button(isy_btn_frame, text="Legg til …", width=10,
+                   command=self._legg_til_isy).pack(side="left", padx=(0, 4))
+        ttk.Button(isy_btn_frame, text="Fjern valgte", width=12,
+                   command=self._fjern_isy).pack(side="left")
+
+        for sti in self._isy_stiar:
+            self._isy_lb.insert("end", sti)
+
+        # ── APM PDF-mappe ─────────────────────────────────────────────────────
+        self._mappe_rad(outer, 4, "APM PDF-mappe:", self._apm_mappe)
+
+        # Separator
+        ttk.Separator(outer, orient="horizontal").grid(
+            row=5, column=0, columnspan=3, sticky="ew", pady=p,
+        )
+
+        # Avkryssingsboksar
+        ttk.Checkbutton(
+            outer,
+            text="Lag også fullstendig ARM/RIB-rapport  (Mengdeuttak_Armering)",
+            variable=self._rib_arm,
+        ).grid(row=6, column=0, columnspan=3, sticky="w")
+
+        ttk.Checkbutton(
+            outer,
+            text="Bruk FOB_Mengde for RIB-volum  (i staden for PGF_Kalkyle)",
+            variable=self._fob_mengde,
+        ).grid(row=7, column=0, columnspan=3, sticky="w", pady=(2, 0))
+
+        ttk.Checkbutton(
+            outer,
+            text="Hopp over APM-analyse  (pdf_maalebrev_til_excel)",
+            variable=self._hopp_over_apm,
+        ).grid(row=8, column=0, columnspan=3, sticky="w", pady=(2, 0))
+
+        # Knappepanel
+        btn_frame = ttk.Frame(outer)
+        btn_frame.grid(row=9, column=0, columnspan=3, sticky="e", pady=(p, 0))
+
+        self._kjor_btn = ttk.Button(
+            btn_frame, text="Kjør", width=12, command=self._start,
+        )
+        self._kjor_btn.pack(side="left", padx=(0, 4))
+
+        ttk.Button(
+            btn_frame, text="Avbryt", width=12, command=self._ved_lukking,
+        ).pack(side="left")
+
+        # Loggfelt
+        ttk.Separator(outer, orient="horizontal").grid(
+            row=10, column=0, columnspan=3, sticky="ew", pady=p,
+        )
+
+        log_frame = ttk.LabelFrame(outer, text="Logg", padding=4)
+        log_frame.grid(row=11, column=0, columnspan=3, sticky="nsew")
+        outer.rowconfigure(11, weight=1)
+        outer.columnconfigure(1, weight=1)
+
+        self._log = tk.Text(
+            log_frame,
+            height=18,
+            state="disabled",
+            wrap="word",
+            font=("Consolas", 9),
+            bg="#1e1e1e",
+            fg="#d4d4d4",
+            insertbackground="white",
+        )
+        sb = ttk.Scrollbar(log_frame, command=self._log.yview)
+        self._log.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self._log.pack(side="left", fill="both", expand=True)
+
+        # Åpne-knapp (vises etter fullføring)
+        self._opne_frame = ttk.Frame(outer)
+        self._opne_frame.grid(row=12, column=0, columnspan=3, sticky="e", pady=(4, 0))
+
+    def _fil_rad(
+        self,
+        parent: ttk.Frame,
+        row: int,
+        etikett: str,
+        var: tk.StringVar,
+        filetypes: list,
+    ) -> None:
+        p = self.PAD
+        ttk.Label(parent, text=etikett, anchor="e", width=22).grid(
+            row=row, column=0, sticky="e", padx=(0, 4), pady=2,
+        )
+        e = ttk.Entry(parent, textvariable=var, width=60)
+        e.grid(row=row, column=1, sticky="ew", pady=2)
+        ttk.Button(
+            parent,
+            text="Bla …",
+            width=6,
+            command=lambda v=var, ft=filetypes: self._bla(v, ft),
+        ).grid(row=row, column=2, sticky="w", padx=(4, 0), pady=2)
+
+    def _mappe_rad(
+        self,
+        parent: ttk.Frame,
+        row: int,
+        etikett: str,
+        var: tk.StringVar,
+    ) -> None:
+        ttk.Label(parent, text=etikett, anchor="e", width=22).grid(
+            row=row, column=0, sticky="e", padx=(0, 4), pady=2,
+        )
+        e = ttk.Entry(parent, textvariable=var, width=60)
+        e.grid(row=row, column=1, sticky="ew", pady=2)
+        ttk.Button(
+            parent,
+            text="Bla …",
+            width=6,
+            command=lambda v=var: self._bla_mappe(v),
+        ).grid(row=row, column=2, sticky="w", padx=(4, 0), pady=2)
+
+    # ── Filovalar ─────────────────────────────────────────────────────────────
+
+    def _legg_til_csv(self) -> None:
+        stiar = filedialog.askopenfilenames(
+            initialdir=os.path.expanduser("~"),
+            filetypes=_CSV_FT,
+        )
+        eksisterande = set(self._csv_lb.get(0, "end"))
+        for sti in stiar:
+            if sti and sti not in eksisterande:
+                self._csv_lb.insert("end", sti)
+                eksisterande.add(sti)
+
+    def _fjern_csv(self) -> None:
+        for idx in reversed(self._csv_lb.curselection()):
+            self._csv_lb.delete(idx)
+
+    def _legg_til_isy(self) -> None:
+        stiar = filedialog.askopenfilenames(
+            initialdir=os.path.expanduser("~"),
+            filetypes=_EXCEL_FT,
+        )
+        eksisterande = set(self._isy_lb.get(0, "end"))
+        for sti in stiar:
+            if sti and sti not in eksisterande:
+                self._isy_lb.insert("end", sti)
+                eksisterande.add(sti)
+
+    def _fjern_isy(self) -> None:
+        for idx in reversed(self._isy_lb.curselection()):
+            self._isy_lb.delete(idx)
+
+    def _bla(self, var: tk.StringVar, filetypes: list) -> None:
+        start = os.path.dirname(var.get()) if os.path.exists(os.path.dirname(var.get())) else os.path.expanduser("~")
+        path = filedialog.askopenfilename(
+            initialdir=start,
+            filetypes=filetypes,
+        )
+        if path:
+            var.set(path)
+
+    def _bla_mappe(self, var: tk.StringVar) -> None:
+        start = var.get() if os.path.isdir(var.get()) else os.path.expanduser("~")
+        path = filedialog.askdirectory(initialdir=start)
+        if path:
+            var.set(path)
+
+    # ── Køyring ───────────────────────────────────────────────────────────────
+
+    def _log_linje(self, tekst: str) -> None:
+        self._log.after(0, self._log_skriv, tekst)
+
+    def _log_skriv(self, tekst: str) -> None:
+        self._log.configure(state="normal")
+        self._log.insert("end", tekst + "\n")
+        self._log.see("end")
+        self._log.configure(state="disabled")
+
+    def _start(self) -> None:
+        if self._running:
+            return
+
+        csv_stiar = list(self._csv_lb.get(0, "end"))
+        isy_stiar = list(self._isy_lb.get(0, "end"))
+        omega     = self._omega_var.get().strip()
+
+        if not csv_stiar:
+            messagebox.showerror("Manglende fil", "Ingen CSV-fil er lagt til.")
+            return
+        if not isy_stiar:
+            messagebox.showerror("Manglende fil", "Ingen ISY Linker-fil er lagt til.")
+            return
+        for sti in csv_stiar:
+            if not os.path.exists(sti):
+                messagebox.showerror("Manglende fil", f"Finner ikke CSV-fil:\n{sti}")
+                return
+        for sti in isy_stiar:
+            if not os.path.exists(sti):
+                messagebox.showerror("Manglende fil", f"Finner ikke ISY Linker-fil:\n{sti}")
+                return
+        if not omega or not os.path.exists(omega):
+            messagebox.showerror("Manglende fil", f"Finner ikke Omega-fil:\n{omega}")
+            return
+
+        # Hugs filvala til neste køyring
+        self._lagre_innstillingar()
+
+        self._kjor_btn.configure(state="disabled")
+        for w in self._opne_frame.winfo_children():
+            w.destroy()
+        self._output_oversikt = None
+        self._output_rib_arm  = []
+        self._output_apm      = None
+        self._running = True
+
+        # Omdiriger stdout/stderr til loggfeltet
+        stream = _WidgetStream(self._log)
+        old_out, old_err = sys.stdout, sys.stderr
+        sys.stdout = stream
+        sys.stderr = stream
+
+        apm_mappe    = self._apm_mappe.get().strip()
+        hopp_over_apm = self._hopp_over_apm.get()
+
+        def _run():
+            try:
+                self._kjor_analyse(
+                    csv_stiar, omega, isy_stiar,
+                    self._rib_arm.get(), self._fob_mengde.get(),
+                    apm_mappe, hopp_over_apm,
+                )
+            except Exception as exc:
+                import traceback
+                print(f"\n[FEIL] {exc}")
+                print(traceback.format_exc())
+            finally:
+                sys.stdout = old_out
+                sys.stderr = old_err
+                self._running = False
+                self.after(0, self._kjor_btn.configure, {"state": "normal"})
+                self.after(0, self._vis_opne_knapper)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _kjor_analyse(
+        self, csv_path: list[str], omega_path: str, isy_path: list[str],
+        lag_rib_arm: bool, fob_mengde: bool,
+        apm_mappe: str = "", hopp_over_apm: bool = False,
+    ) -> None:
+        from mengde_oversikt import kjor_arm_rib_per_omraade, lag_oversikt
+
+        arm_rib_excels: list[str] = []
+
+        if lag_rib_arm:
+            print("=" * 60)
+            print("STEG 1 — Mengdeuttak ARM/RIB (Mengdeuttak_Armering.py)")
+            print("=" * 60)
+            arm_rib_excels = kjor_arm_rib_per_omraade(
+                csv_path=csv_path,
+                omega_path=omega_path,
+                fob_mengde_mode=fob_mengde,
+            )
+            self._output_rib_arm = arm_rib_excels
+            for p in arm_rib_excels:
+                print(f"\n[OK] ARM/RIB-rapport: {p}")
+            print()
+
+        print("=" * 60)
+        print("STEG 2 — Mengde Oversikt")
+        print("=" * 60)
+        oversikt = lag_oversikt(
+            csv_path=csv_path,
+            omega_path=omega_path,
+            isy_path=isy_path,
+            arm_rib_excels=arm_rib_excels if arm_rib_excels else None,
+        )
+        self._output_oversikt = oversikt
+        print(f"\n[OK] Oversikt: {oversikt}")
+
+        if not hopp_over_apm and apm_mappe and os.path.isdir(apm_mappe):
+            print()
+            print("=" * 60)
+            print("STEG 3 — APM Målebrev (pdf_maalebrev_til_excel.py)")
+            print("=" * 60)
+            from pdf_maalebrev_til_excel import extract_folder
+            apm_ut = extract_folder(
+                mappe=apm_mappe,
+                omega_path=omega_path,
+                isy_path=isy_path if isy_path else None,
+            )
+            if apm_ut:
+                self._output_apm = apm_ut
+                print(f"\n[OK] APM-rapport: {apm_ut}")
+        elif not hopp_over_apm and apm_mappe:
+            print(f"[ADVARSEL] APM-mappe finnes ikke: {apm_mappe}")
+
+        print("\nFerdig!")
+
+    def _vis_opne_knapper(self) -> None:
+        if self._output_oversikt and os.path.exists(self._output_oversikt):
+            ttk.Button(
+                self._opne_frame,
+                text="Åpne Oversikt",
+                command=lambda: _opne_fil(self._output_oversikt),
+            ).pack(side="left", padx=4, pady=4)
+
+        for path in self._output_rib_arm:
+            if not os.path.exists(path):
+                continue
+            name = os.path.basename(path)
+            if "_LYA" in name:
+                label = "ARM/RIB LYA"
+            elif "_VEK" in name:
+                label = "ARM/RIB VEK"
+            else:
+                label = "ARM/RIB-rapport"
+            ttk.Button(
+                self._opne_frame,
+                text=f"Åpne {label}",
+                command=lambda p=path: _opne_fil(p),
+            ).pack(side="left", padx=4, pady=4)
+
+        if self._output_apm and os.path.exists(self._output_apm):
+            ttk.Button(
+                self._opne_frame,
+                text="Åpne APM-rapport",
+                command=lambda: _opne_fil(self._output_apm),
+            ).pack(side="left", padx=4, pady=4)
+
+
+# ── Hjelpefunksjonar ─────────────────────────────────────────────────────────
+
+def _opne_fil(sti: str) -> None:
+    """Opna fil med standardprogram (Windows)."""
+    try:
+        os.startfile(sti)
+    except Exception:
+        subprocess.Popen(["explorer", "/select,", os.path.normpath(sti)])
+
+
+# ── Inngangspunkt ─────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    app = MengdeApp()
+    app.mainloop()

@@ -1,0 +1,10 @@
+# Excel-filer (resultat og grunnlag) — lagra lokalt i excel/, ikkje på GitHub
+excel/
+*.xlsx
+~$*.xlsx
+
+# Genererte filer
+__pycache__/
+*.pyc
+build/
+dist/

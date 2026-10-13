@@ -1,0 +1,19 @@
+{
+  "csv_stiar": [
+    "C:/Users/ifi/Downloads/NOVORENDER_SKY.csv"
+  ],
+  "isy_stiar": [
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/SKY - Maalebrev/NS3420 K10 Skøyen Stasjon  Madserud og Bestum.xlsx",
+    "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/SKY - Maalebrev/SVV Prosesskode K10 Skøyen Stasjon  Madserud og Bestum.xlsx"
+  ],
+  "omega": "C:/Users/ifi/Downloads/Målebrev.xlsx",
+  "apm_mappe": "C:/Users/ifi/Scan Survey/6900 - Fornebubanen/6900-01-010 K7 - Lysaker og Vækerø Stasjon/Målebrev/Prognose beregning/September 2026/APM",
+  "rib_arm": true,
+  "fob_mengde": true,
+  "hopp_over_apm": true,
+  "lag_prognose": true,
+  "periode": "Oktober 2026",
+  "omega_overstyrer": true,
+  "omega_mal": "C:/Users/ifi/Downloads/Update_template_Målebrev.xlsx",
+  "utmappe_rot": "C:\\Users\\ifi\\Scan Survey\\6900 - Fornebubanen\\6900-01-010 K7 - Lysaker og Vækerø Stasjon\\Målebrev\\Prognose beregning"
+}

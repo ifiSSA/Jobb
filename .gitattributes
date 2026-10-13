@@ -1,0 +1,14 @@
+# Linjeskift: git lagrar alt med LF, og Windows får CRLF ved utsjekk.
+* text=auto
+
+# .bat/.cmd må ha Windows-linjeskift, elles kan cmd tolke goto/etikettar feil
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binære filer — aldri røyr linjeskift
+*.xlsx binary
+*.xls binary
+*.pdf binary
+*.exe binary
+*.zip binary
+*.ico binary
